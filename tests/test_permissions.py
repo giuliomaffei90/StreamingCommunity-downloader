@@ -54,6 +54,7 @@ CASES = [
     ((Permission.VIEW_LIBRARY,), "GET", "/api/files", None),
     ((Permission.MANAGE_REQUESTS, Permission.DOWNLOAD), "POST",
      "/api/download/does-not-exist/fire", None),
+    ((Permission.DOWNLOAD,), "POST", "/api/download/does-not-exist/retry", None),
     ((Permission.MANAGE_USERS,), "GET", "/api/users", None),
 ]
 

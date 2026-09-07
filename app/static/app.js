@@ -2479,6 +2479,15 @@ function connectGlobalStream() {
       case 'error':
         handleErrorEvent(msg.job_id, msg.message);
         break;
+      case 'job_retried':
+        // Same job_id, so the card is replaced rather than added: the phase
+        // steps and the error line have to come back empty.
+        delete _jobPhases[msg.job.job_id];
+        _jobs.set(msg.job.job_id, msg.job);
+        const oldCard = document.getElementById(`job-card-${msg.job.job_id}`);
+        if (oldCard) oldCard.outerHTML = _buildJobCard(msg.job);
+        updateActiveBadge();
+        break;
       case 'job_dismissed':
         _jobs.delete(msg.job_id);
         document.getElementById(`job-card-${msg.job_id}`)?.remove();
@@ -2596,6 +2605,15 @@ function _phaseBorder(phase) {
   return 'transparent';
 }
 
+// A download that failed can be run again from the list: the panel still holds
+// what it was asked to fetch, so there is nothing to look up in search again.
+function _retryBtnHtml(jobId, status) {
+  if (status !== 'error' && status !== 'cancelled') return '';
+  return `<button class="btn btn-sm btn-outline-primary ms-1" onclick="retryJob('${jobId}')" title="Riprova">
+            <i class="ti ti-refresh"></i>
+          </button>`;
+}
+
 function _buildJobCard(j) {
   const phase = _jobPhases[j.job_id] || j.status;
   const isActive = j.status==='running' || j.status==='queued' || j.status==='scheduled';
@@ -2626,6 +2644,7 @@ function _buildJobCard(j) {
     ? `<button class="btn btn-sm btn-outline-danger ms-1" onclick="cancelJob('${j.job_id}')" title="Interrompi">
          <i class="ti ti-player-stop"></i>
        </button>` : '';
+  const retryBtn = _retryBtnHtml(j.job_id, j.status);
 
   const rawTs = j.scheduled_at || j.created_at;
   const dateStr = rawTs
@@ -2641,6 +2660,7 @@ function _buildJobCard(j) {
         <span class="fw-medium text-truncate flex-1" style="min-width:0" title="${escapeHtml(j.title)}">${escapeHtml(j.title)}</span>
         <span class="badge ${badgeClass} flex-shrink-0" id="job-badge-${j.job_id}">${label}</span>
         <span id="job-fire-${j.job_id}">${fireBtn}</span>
+        <span id="job-retry-${j.job_id}">${retryBtn}</span>
         ${stopBtn ? `<span id="job-stop-${j.job_id}">${stopBtn}</span>` : `<span id="job-stop-${j.job_id}"></span>`}
       </div>
       ${stepsHtml}
@@ -2733,6 +2753,8 @@ function refreshCardAppearance(jobId) {
       ? `<button class="btn btn-sm btn-outline-danger ms-1" onclick="cancelJob('${j.job_id}')" title="Interrompi"><i class="ti ti-player-stop"></i></button>`
       : '';
   }
+  const retry = document.getElementById(`job-retry-${jobId}`);
+  if (retry) retry.innerHTML = _retryBtnHtml(jobId, j.status);
 
   // Update info text
   const info = document.getElementById(`job-info-${jobId}`);
@@ -2740,6 +2762,7 @@ function refreshCardAppearance(jobId) {
     if (j.status==='error') info.textContent = j.error||'Errore';
     else if (j.status==='done') info.textContent = 'Completato';
     else if (j.status==='cancelled') info.textContent = 'Annullato';
+    else info.textContent = '';
   }
 
   updateActiveSection();
@@ -2850,6 +2873,8 @@ function handleErrorEvent(jobId, message) {
   if (info) info.textContent = message==='Annullato' ? 'Annullato' : escapeHtml(message||'Errore');
   const stop = document.getElementById(`job-stop-${jobId}`);
   if (stop) stop.innerHTML='';
+  const retry = document.getElementById(`job-retry-${jobId}`);
+  if (retry) retry.innerHTML = _retryBtnHtml(jobId, job ? job.status : 'error');
 
   updateActiveBadge();
 }
@@ -2857,6 +2882,13 @@ function handleErrorEvent(jobId, message) {
 async function fireNow(jobId) {
   try {
     const res = await fetch(`/api/download/${jobId}/fire`, {method:'POST'});
+    if (!res.ok) { const d=await safeJson(res); showToast(d.detail||'Errore','danger'); }
+  } catch(e) { showToast('Errore di rete','danger'); }
+}
+
+async function retryJob(jobId) {
+  try {
+    const res = await fetch(`/api/download/${jobId}/retry`, {method:'POST'});
     if (!res.ok) { const d=await safeJson(res); showToast(d.detail||'Errore','danger'); }
   } catch(e) { showToast('Errore di rete','danger'); }
 }

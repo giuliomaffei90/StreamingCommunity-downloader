@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 SCHEDULER_INTERVAL = 30  # seconds
 
+# Terminal states a job can be run again from.
+RETRYABLE = ("error", "cancelled")
+
 
 @dataclass
 class DownloadJob:
@@ -58,6 +61,11 @@ class DownloadJob:
     year: Optional[str] = None
     season: Optional[int] = None
     episode_number: Optional[str] = None
+
+    # The call that ran this download, recorded so it can be run again without
+    # the browser re-resolving the title. Set in _run_download, which every path
+    # into the executor goes through — including a scheduled job fired later.
+    call: Optional[tuple] = None
 
 
 class JobManager:
@@ -326,6 +334,32 @@ class JobManager:
             self._notify_listeners(job)
         return True
 
+    def retry(self, job_id: str) -> bool:
+        """Run a failed or cancelled job again, reusing the call it already made.
+
+        The same job object is reused so the card stays where it is instead of
+        the download appearing twice in the list. Its batch is dropped: the
+        season summary it belonged to counted this failure and has already been
+        sent, and reporting into it a second time would close it early on a job
+        somebody else is still waiting for.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job or job.status not in RETRYABLE or job.call is None:
+                return False
+            fn, args, kwargs = job.call
+            job.cancel_event.clear()
+            job.status = "queued"
+            job.error = None
+            job.output_path = None
+            job.progress = {"current": 0, "total": 0, "pct": 0, "speed": 0, "eta": None}
+            job.batch_id = None
+            job.batch_kind = None
+            job.batch_label = None
+        self._broadcast({"type": "job_retried", "job": self._job_to_dict(job)})
+        self._executor.submit(self._run_download, job, fn, *args, **kwargs)
+        return True
+
     def dismiss(self, job_id: str) -> bool:
         """Remove a finished/cancelled job and clean it from the schedule store."""
         with self._lock:
@@ -339,6 +373,7 @@ class JobManager:
         return True
 
     def _run_download(self, job: DownloadJob, fn, *args, **kwargs):
+        job.call = (fn, args, kwargs)
         # Listeners fire outside the semaphore: a listener does DB writes and
         # blocking HTTP (external notification channels), and holding a download
         # slot for that would cost real throughput. The outer try/finally makes

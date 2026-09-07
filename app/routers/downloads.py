@@ -408,6 +408,14 @@ def fire_now(job_id: str):
     raise HTTPException(status_code=404, detail="Job non trovato o non in stato programmato")
 
 
+@router.post("/{job_id}/retry", status_code=200, dependencies=CAN_DOWNLOAD)
+def retry(job_id: str):
+    """Run a failed or cancelled download again, without searching for it anew."""
+    if job_manager.retry(job_id):
+        return {"job_id": job_id, "status": "queued"}
+    raise HTTPException(status_code=404, detail="Job non trovato o non ripetibile")
+
+
 @router.delete("/{job_id}", status_code=200, dependencies=CAN_CONTROL_JOBS)
 def cancel_or_dismiss(job_id: str):
     """Cancel a running/queued/scheduled job, or dismiss a finished one (also cleans schedule store)."""

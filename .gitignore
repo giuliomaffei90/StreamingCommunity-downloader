@@ -23,3 +23,9 @@ panel.db-shm
 # Not committed: the source domain rotates, so a baked-in value ships stale.
 data.json
 schedule.json
+
+# macOS
+.DS_Store
+
+# Lock file held by config.update_data()
+data.json.lock
