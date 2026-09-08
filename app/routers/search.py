@@ -32,12 +32,13 @@ async def search(
     q: str = Query(..., min_length=1),
     source: str = Query(default="streamingcommunity"),
     dubbed_only: bool = Query(default=False),
+    media_type: str | None = Query(default=None, pattern="^(movie|tv)$"),
 ):
     try:
         if source == "animeunity":
             results = await asyncio.to_thread(animeunity.search, q, dubbed_only)
         else:
-            results = await asyncio.to_thread(core_search, q, _domain())
+            results = await asyncio.to_thread(core_search, q, _domain(), media_type)
     except HTTPException:
         raise
     except Exception as e:

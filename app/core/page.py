@@ -29,7 +29,8 @@ def get_domain_version(domain: str) -> str:
     return ""
 
 
-def search(title_search: str, domain: str) -> list[dict]:
+def search(title_search: str, domain: str, media_type: str | None = None) -> list[dict]:
+    """Search the source. ``media_type`` keeps only "movie" or only "tv"."""
     session = requests.Session()
     ua = get_headers()
 
@@ -82,6 +83,12 @@ def search(title_search: str, domain: str) -> list[dict]:
         titles = data["props"].get("titles", data["props"].get("results", []))
     elif "data" in data:
         titles = data.get("data", [])
+
+    # Before the [:21] below, not after: the cut keeps whichever titles came
+    # first, so filtering its output would answer "no films" for a search whose
+    # films were all sitting at position 22.
+    if media_type:
+        titles = [t for t in titles if t.get("type") == media_type]
 
     def _poster(images):
         for img in (images or []):

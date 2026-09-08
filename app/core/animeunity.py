@@ -54,6 +54,12 @@ def _normalize_titles(titles: list) -> list[dict]:
             "id": anime_id,
             "name": title_str,
             "type": "anime",
+            # The source's own classification — Movie, TV, OVA, ONA, Special.
+            # Kept beside `type` rather than in it: `type` is "anime" for every
+            # record and the whole anime flow keys off that, from the detail
+            # modal to the episodes endpoint to the job kind. Dropping this used
+            # to leave the card with nothing to go on, so it labelled a film "TV".
+            "media_type": t.get("type") or "",
             "slug": slug,
             "poster": poster,
             "episodes_count": t.get("episodes_count", 0),

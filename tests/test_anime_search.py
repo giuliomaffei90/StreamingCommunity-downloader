@@ -92,3 +92,20 @@ def test_a_genuinely_empty_search_still_raises(source):
 
     with pytest.raises(RuntimeError):
         animeunity.search("show", dubbed_only=True)
+
+
+def test_the_source_classification_survives(source):
+    """AnimeUnity says Movie/TV/OVA/ONA/Special; the card needs it to say so too.
+
+    `type` is "anime" on every record because the whole anime flow keys off it,
+    so the source's own classification rides alongside in `media_type`. Dropping
+    it is what made the card label a film "TV".
+    """
+    records = [_record(1, dub=False) | {"type": "Movie"},
+               _record(2, dub=False) | {"type": "OVA"}]
+    source(records)
+
+    results = animeunity.search("show")
+
+    assert [r["type"] for r in results] == ["anime", "anime"]
+    assert [r["media_type"] for r in results] == ["Movie", "OVA"]

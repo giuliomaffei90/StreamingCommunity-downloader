@@ -1751,6 +1751,14 @@
                 <i class="ti ti-search"></i>Cerca
               </button>
             </div>
+            <div class="mt-2" id="sc-type-filter">
+              <select class="form-select form-select-sm" id="sc-type" onchange="doSearch()"
+                      style="max-width:200px">
+                <option value="">Film e serie TV</option>
+                <option value="movie">Solo film</option>
+                <option value="tv">Solo serie TV</option>
+              </select>
+            </div>
             <label class="form-check form-switch mt-2" id="dub-filter" style="display:none">
               <input class="form-check-input" type="checkbox" id="dub-only" onchange="doSearch()">
               <span class="form-check-label">Solo doppiati in italiano</span>

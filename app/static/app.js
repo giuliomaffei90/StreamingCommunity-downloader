@@ -229,6 +229,22 @@ async function dismissDomainCandidate() {
 
 // ── Source selector ────────────────────────────────────────────────────────────
 
+// What the little badge on a result card should read. AnimeUnity classifies its
+// own records (Movie, TV, OVA, ONA, Special) and sends it as media_type;
+// StreamingCommunity has only the two. An unrecognised value is shown as it
+// came rather than folded into "TV" — being silently mislabelled a TV series is
+// exactly the bug this replaced.
+const ANIME_TYPE_LABELS = {Movie: 'Film', TV: 'TV', OVA: 'OVA', ONA: 'ONA', Special: 'Speciale'};
+
+function typeBadge(item) {
+  if (item.media_type) {
+    const label = ANIME_TYPE_LABELS[item.media_type] || item.media_type;
+    return {label, cls: item.media_type === 'Movie' ? 'bg-blue-lt' : 'bg-green-lt'};
+  }
+  const isMovie = item.type === 'movie';
+  return {label: isMovie ? 'Film' : 'TV', cls: isMovie ? 'bg-blue-lt' : 'bg-green-lt'};
+}
+
 function setSource(src) {
   currentSource = src;
   document.getElementById('src-sc').classList.toggle('active', src === 'streamingcommunity');
@@ -239,6 +255,10 @@ function setSource(src) {
   // control on the other source rather than one that simply does nothing.
   const dubFilter = document.getElementById('dub-filter');
   if (dubFilter) dubFilter.style.display = src === 'animeunity' ? '' : 'none';
+  // Each source gets the filter it can actually answer: AnimeUnity has the dub
+  // flag, StreamingCommunity has the film/series split.
+  const scFilter = document.getElementById('sc-type-filter');
+  if (scFilter) scFilter.style.display = src === 'animeunity' ? 'none' : '';
   document.getElementById('search-results').innerHTML = '';
 }
 
@@ -794,6 +814,8 @@ async function doSearch() {
     if (currentSource === 'animeunity' && document.getElementById('dub-only')?.checked) {
       searchParams.set('dubbed_only', 'true');
     }
+    const mediaType = currentSource !== 'animeunity' && document.getElementById('sc-type')?.value;
+    if (mediaType) searchParams.set('media_type', mediaType);
     const res = await fetch(`/api/search?${searchParams}`, {signal: _searchAbort.signal});
     const container = document.getElementById('search-results');
     const results = await safeJson(res);
@@ -831,7 +853,7 @@ async function doSearch() {
           <div class="card-meta">
             <div class="card-title-text" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
             <div class="card-badges">
-              <span class="badge ${isMovie?'bg-blue-lt':'bg-green-lt'}">${isMovie?'Film':'TV'}</span>
+              <span class="badge ${typeBadge(item).cls}">${escapeHtml(typeBadge(item).label)}</span>
               ${score?`<span class="badge bg-yellow-lt">★ ${score}</span>`:''}
               ${year?`<span style="font-size:10px;color:var(--text-muted)">${year}</span>`:''}
             </div>
