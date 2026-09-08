@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 ANIMEUNITY_HOST = os.getenv("ANIMEUNITY_HOST", "www.animeunity.so")
 BATCH_SIZE = 120
 
+# What a search shows. /archivio/get-animes answers 30 rows per call, so this
+# is really "everything the source gave us"; the number is a ceiling for the
+# day it starts answering with more.
+MAX_RESULTS = 60
+
 _scraper = None
 
 
@@ -66,20 +71,26 @@ def _normalize_titles(titles: list) -> list[dict]:
             "score": t.get("score") or t.get("vote"),
             "release_date": t.get("date") or t.get("release_date") or "",
         })
-        if len(results) >= 21:
+        if len(results) >= MAX_RESULTS:
             break
     return results
 
 
-def search(query: str, dubbed_only: bool = False) -> list[dict]:
-    """
-    Search for anime on AnimeUnity using the /livesearch endpoint.
-    Handles CSRF token requirements for Laravel protection.
+def search(query: str, dubbed_only: bool = False,
+           media_type: str | None = None) -> list[dict]:
+    """Search AnimeUnity. Handles the Laravel CSRF token.
 
-    ``dubbed_only`` keeps just the Italian dubs. The source publishes a ``dub``
-    flag per title and a dubbed entry is a separate record from its subtitled
-    one — same anime, own id and slug — so this is a filter over records, not a
-    property of a title.
+    Uses ``/archivio/get-animes`` rather than ``/livesearch``. The latter is
+    what this used to call and it is capped at **8 records** by the source, for
+    every query, with no way to ask for more and no filters — measured, not
+    guessed. The archive endpoint answers 30 at a time, reports the true total,
+    and applies both filters itself, so they run over the whole catalogue
+    instead of over whichever 8 rows came back.
+
+    ``dubbed_only`` keeps the Italian dubs; a dubbed anime is its own record on
+    this source — same show, separate id and slug, "(ITA)" in the title.
+    ``media_type`` is the source's own classification: Movie, TV, OVA, ONA,
+    Special.
     """
     scraper = _get_scraper()
     host = ANIMEUNITY_HOST
@@ -119,45 +130,37 @@ def search(query: str, dubbed_only: bool = False) -> list[dict]:
     if csrf_token:
         headers_ajax["X-CSRF-TOKEN"] = csrf_token
 
-    # Use the /livesearch endpoint (POST with {title: query})
+    # Both filters go to the source rather than being applied to what comes
+    # back: filtering here could only ever narrow one page, and would answer
+    # "no Italian dub" for a show whose dub sat on page two.
+    payload = {"title": query, "offset": 0}
+    if dubbed_only:
+        payload["dubbed"] = 1
+    if media_type:
+        payload["type"] = media_type
+
     r = with_retry(lambda: scraper.post(
-        f"https://{host}/livesearch",
-        json={"title": query},
+        f"https://{host}/archivio/get-animes",
+        json=payload,
         headers=headers_ajax,
-        timeout=15,
+        timeout=20,
     ), what="AnimeUnity search")
 
     if not r.ok:
-        logger.error("Livesearch failed with status %d. CSRF token was: %s", 
-                    r.status_code, "present" if csrf_token else "missing")
+        logger.error("Archive search failed with status %d. CSRF token was: %s",
+                     r.status_code, "present" if csrf_token else "missing")
         raise RuntimeError(f"AnimeUnity search failed: HTTP {r.status_code}")
 
     try:
-        data = r.json()
-        records = data.get("records", [])
-        if dubbed_only and records:
-            # Before _normalize_titles, which stops at 21: filtering after the
-            # cut would drop dubs that were there, in favour of subtitled
-            # entries that got counted first and then thrown away.
-            #
-            # Guarded on `records` so an already-empty answer falls through to
-            # the raise below: a search that found nothing at all is a
-            # different thing from one whose results were all subtitled.
-            records = [r for r in records if r.get("dub")]
-            # Nothing dubbed is an answer, not a failure. The raise below means
-            # the search itself found nothing, and it surfaces as a red error
-            # box — the wrong thing to show someone who has just ticked a box.
-            if not records:
-                return []
-        if records:
-            result = _normalize_titles(records)
-            if result:
-                return result
+        records = r.json().get("records", [])
     except Exception as e:
-        logger.error("Error parsing livesearch response: %s", e)
+        logger.error("Error parsing archive response: %s", e)
         raise
 
-    raise RuntimeError(f"AnimeUnity search: no results found for '{query}'")
+    # No rows is an answer, not a failure — the same one StreamingCommunity
+    # gives. This used to raise, which reached the panel as a red error box
+    # saying the search had broken when the query simply matched nothing.
+    return _normalize_titles(records)
 
 
 def get_episodes(anime_id: str) -> list[dict]:

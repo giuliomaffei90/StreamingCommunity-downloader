@@ -229,21 +229,35 @@ async function dismissDomainCandidate() {
 
 // ── Source selector ────────────────────────────────────────────────────────────
 
-// What the little badge on a result card should read. AnimeUnity classifies its
-// own records (Movie, TV, OVA, ONA, Special) and sends it as media_type;
-// StreamingCommunity has only the two. An unrecognised value is shown as it
-// came rather than folded into "TV" — being silently mislabelled a TV series is
-// exactly the bug this replaced.
-const ANIME_TYPE_LABELS = {Movie: 'Film', TV: 'TV', OVA: 'OVA', ONA: 'ONA', Special: 'Speciale'};
+// The badge on a result card: one colour per kind, so the grid can be read at a
+// glance without going word by word. Capitalised keys are AnimeUnity's own
+// classification (sent as media_type), lower case is StreamingCommunity's.
+const TYPE_BADGES = {
+  Movie:   {label: 'Film',     cls: 'bg-blue-lt'},
+  TV:      {label: 'TV',       cls: 'bg-green-lt'},
+  OVA:     {label: 'OVA',      cls: 'bg-purple-lt'},
+  ONA:     {label: 'ONA',      cls: 'bg-cyan-lt'},
+  Special: {label: 'Speciale', cls: 'bg-orange-lt'},
+  movie:   {label: 'Film',     cls: 'bg-blue-lt'},
+  tv:      {label: 'TV',       cls: 'bg-green-lt'},
+};
 
 function typeBadge(item) {
-  if (item.media_type) {
-    const label = ANIME_TYPE_LABELS[item.media_type] || item.media_type;
-    return {label, cls: item.media_type === 'Movie' ? 'bg-blue-lt' : 'bg-green-lt'};
-  }
-  const isMovie = item.type === 'movie';
-  return {label: isMovie ? 'Film' : 'TV', cls: isMovie ? 'bg-blue-lt' : 'bg-green-lt'};
+  const key = item.media_type || item.type;
+  // An unrecognised kind is shown as it came, in a neutral colour. Folding it
+  // into "TV" is precisely the bug this replaced — every anime, films
+  // included, was labelled a TV series.
+  return TYPE_BADGES[key] || {label: key || '—', cls: 'bg-secondary-lt'};
 }
+
+// Each source classifies its catalogue in its own vocabulary, so the filter is
+// rebuilt when the source changes rather than offering one of them options the
+// other cannot answer.
+const TYPE_FILTER_OPTIONS = {
+  streamingcommunity: [['', 'Film e serie TV'], ['movie', 'Solo film'], ['tv', 'Solo serie TV']],
+  animeunity: [['', 'Tutti i tipi'], ['Movie', 'Solo film'], ['TV', 'Solo serie TV'],
+               ['OVA', 'Solo OVA'], ['ONA', 'Solo ONA'], ['Special', 'Solo speciali']],
+};
 
 function setSource(src) {
   currentSource = src;
@@ -255,10 +269,15 @@ function setSource(src) {
   // control on the other source rather than one that simply does nothing.
   const dubFilter = document.getElementById('dub-filter');
   if (dubFilter) dubFilter.style.display = src === 'animeunity' ? '' : 'none';
-  // Each source gets the filter it can actually answer: AnimeUnity has the dub
-  // flag, StreamingCommunity has the film/series split.
-  const scFilter = document.getElementById('sc-type-filter');
-  if (scFilter) scFilter.style.display = src === 'animeunity' ? 'none' : '';
+  const select = document.getElementById('type-select');
+  if (select) {
+    // Rebuilding resets the value to "all", which is what we want: a kind
+    // chosen on one source usually does not exist on the other.
+    select.innerHTML = '';
+    for (const [value, label] of TYPE_FILTER_OPTIONS[src] || []) {
+      select.add(new Option(label, value));
+    }
+  }
   document.getElementById('search-results').innerHTML = '';
 }
 
@@ -814,7 +833,7 @@ async function doSearch() {
     if (currentSource === 'animeunity' && document.getElementById('dub-only')?.checked) {
       searchParams.set('dubbed_only', 'true');
     }
-    const mediaType = currentSource !== 'animeunity' && document.getElementById('sc-type')?.value;
+    const mediaType = document.getElementById('type-select')?.value;
     if (mediaType) searchParams.set('media_type', mediaType);
     const res = await fetch(`/api/search?${searchParams}`, {signal: _searchAbort.signal});
     const container = document.getElementById('search-results');

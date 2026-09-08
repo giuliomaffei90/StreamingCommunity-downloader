@@ -1,8 +1,14 @@
-"""The "Italian dub only" filter on the anime search.
+"""The anime search: which endpoint it calls, and what it asks it for.
 
-AnimeUnity lists a dubbed anime as its own record — same show, separate id and
-slug, a ``dub`` flag and "(ITA)" on the title — so the filter drops records
-rather than reading a property off a title.
+AnimeUnity has two search endpoints. ``/livesearch`` is the obvious one and is
+capped at 8 records by the source for every query, with no filters — this app
+used it and that cap was the whole reason searches looked thin.
+``/archivio/get-animes`` answers 30 at a time and applies the dub and type
+filters itself, which is what makes them filters over the catalogue rather than
+over whichever 8 rows arrived.
+
+So the load-bearing facts here are that the request goes to the archive
+endpoint and that both filters travel with it.
 """
 
 import pytest
@@ -22,90 +28,102 @@ class _Response:
 
 
 class _Scraper:
-    """Answers the two calls search() makes: the home page, then /livesearch."""
+    """Answers the two calls search() makes, and records the second one."""
 
     def __init__(self, records):
         self.records = records
+        self.url = None
+        self.payload = None
 
     def get(self, url, **kwargs):
         return _Response(text="<html><head></head><body></body></html>")
 
     def post(self, url, **kwargs):
-        return _Response(payload={"records": self.records})
+        self.url = url
+        self.payload = kwargs.get("json")
+        return _Response(payload={"records": self.records, "tot": len(self.records)})
 
 
-def _record(n, *, dub):
+def _record(n, *, dub=False, kind="TV"):
     suffix = " (ITA)" if dub else ""
     return {
         "id": n,
         "slug": f"show-{n}{'-ita' if dub else ''}",
         "title_eng": f"Show {n}{suffix}",
         "dub": 1 if dub else 0,
+        "type": kind,
         "episodes_count": 12,
     }
 
 
 @pytest.fixture
 def source(monkeypatch):
+    """Installs a fake scraper and hands back the object, so a test can read
+    what the search actually asked the source for."""
+    holder = {}
+
     def install(records):
-        monkeypatch.setattr(animeunity, "_get_scraper", lambda: _Scraper(records))
+        holder["scraper"] = _Scraper(records)
+        monkeypatch.setattr(animeunity, "_get_scraper", lambda: holder["scraper"])
+        return holder["scraper"]
+
     return install
 
 
-def test_the_filter_runs_before_the_result_cap(source):
-    """A dub past the 21st record still comes back.
+def test_it_asks_the_archive_endpoint_not_livesearch(source):
+    """livesearch caps at 8 whatever is asked of it, so it is the wrong door."""
+    scraper = source([_record(1)])
 
-    _normalize_titles stops at 21. Filtering its output instead of its input
-    would let subtitled entries take every slot and then throw them away,
-    answering "no Italian dub" for a show that has one.
-    """
-    records = [_record(n, dub=False) for n in range(22)] + [
-        _record(100, dub=True), _record(101, dub=True),
-    ]
-    source(records)
+    animeunity.search("show")
 
-    results = animeunity.search("show", dubbed_only=True)
-
-    assert [r["name"] for r in results] == ["Show 100 (ITA)", "Show 101 (ITA)"]
+    assert scraper.url.endswith("/archivio/get-animes")
+    assert "livesearch" not in scraper.url
 
 
-def test_without_the_filter_everything_comes_back(source):
-    source([_record(1, dub=False), _record(2, dub=True)])
+def test_both_filters_are_sent_to_the_source(source):
+    """Applied here they could only narrow one page of results."""
+    scraper = source([_record(1, dub=True, kind="Movie")])
 
-    assert len(animeunity.search("show")) == 2
+    animeunity.search("show", dubbed_only=True, media_type="Movie")
 
-
-def test_nothing_dubbed_is_an_empty_list_not_an_error(source):
-    """Ticking the box on a show with no dub must not read as a broken search.
-
-    search() raises when the source returns nothing, and that surfaces as a red
-    error box. Filtering to empty is an answer and has to stay one.
-    """
-    source([_record(1, dub=False), _record(2, dub=False)])
-
-    assert animeunity.search("show", dubbed_only=True) == []
+    assert scraper.payload["title"] == "show"
+    assert scraper.payload["dubbed"] == 1
+    assert scraper.payload["type"] == "Movie"
 
 
-def test_a_genuinely_empty_search_still_raises(source):
-    """The filter must not turn a broken search into a quiet empty page."""
+def test_an_unfiltered_search_sends_neither(source):
+    """An absent filter must not reach the source as an empty one."""
+    scraper = source([_record(1)])
+
+    animeunity.search("show")
+
+    assert "dubbed" not in scraper.payload
+    assert "type" not in scraper.payload
+
+
+def test_no_results_is_an_empty_list_not_an_error(source):
+    """It used to raise, which reached the panel as a red "search failed" box
+    for a query that had simply matched nothing."""
     source([])
 
-    with pytest.raises(RuntimeError):
-        animeunity.search("show", dubbed_only=True)
+    assert animeunity.search("show") == []
 
 
 def test_the_source_classification_survives(source):
-    """AnimeUnity says Movie/TV/OVA/ONA/Special; the card needs it to say so too.
-
-    `type` is "anime" on every record because the whole anime flow keys off it,
-    so the source's own classification rides alongside in `media_type`. Dropping
-    it is what made the card label a film "TV".
-    """
-    records = [_record(1, dub=False) | {"type": "Movie"},
-               _record(2, dub=False) | {"type": "OVA"}]
-    source(records)
+    """`type` is "anime" on every record because the whole anime flow keys off
+    it, so the source's own kind rides alongside in `media_type`. Dropping it
+    is what made the card label a film "TV"."""
+    source([_record(1, kind="Movie"), _record(2, kind="OVA")])
 
     results = animeunity.search("show")
 
     assert [r["type"] for r in results] == ["anime", "anime"]
     assert [r["media_type"] for r in results] == ["Movie", "OVA"]
+
+
+def test_more_than_eight_results_survive_normalisation(source):
+    """The old cap was 21 here and 8 at the source. Both are gone; a full
+    archive page is 30 and all of it has to come through."""
+    source([_record(n) for n in range(30)])
+
+    assert len(animeunity.search("show")) == 30

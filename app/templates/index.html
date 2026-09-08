@@ -1751,8 +1751,10 @@
                 <i class="ti ti-search"></i>Cerca
               </button>
             </div>
-            <div class="mt-2" id="sc-type-filter">
-              <select class="form-select form-select-sm" id="sc-type" onchange="doSearch()"
+            <div class="mt-2" id="type-filter">
+              <!-- StreamingCommunity's options, the default source. setSource()
+                   rebuilds them from TYPE_FILTER_OPTIONS when it changes. -->
+              <select class="form-select form-select-sm" id="type-select" onchange="doSearch()"
                       style="max-width:200px">
                 <option value="">Film e serie TV</option>
                 <option value="movie">Solo film</option>

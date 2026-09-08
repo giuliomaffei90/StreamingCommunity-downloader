@@ -29,6 +29,11 @@ def get_domain_version(domain: str) -> str:
     return ""
 
 
+# The source answers 60 titles to a search; this used to keep 21 of them for no
+# reason anyone recorded, which is most of a search thrown away.
+MAX_RESULTS = 60
+
+
 def search(title_search: str, domain: str, media_type: str | None = None) -> list[dict]:
     """Search the source. ``media_type`` keeps only "movie" or only "tv"."""
     session = requests.Session()
@@ -110,4 +115,4 @@ def search(title_search: str, domain: str, media_type: str | None = None) -> lis
             "poster": _poster(t.get("images", [])),
         }
         for t in titles
-    ][:21]
+    ][:MAX_RESULTS]
