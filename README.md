@@ -20,7 +20,6 @@ avviare a mano.
 - Gestore file integrato, con streaming video e spazio libero sul volume
 - Cartelle di destinazione scegliibili dalle impostazioni, con selettore nativo
 - Notifiche del Centro Notifiche a fine download — una sola per una stagione intera
-- Webhook post-download, con template del corpo
 - Nomi di file e cartelle configurabili
 
 ---

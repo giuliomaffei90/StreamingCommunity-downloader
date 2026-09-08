@@ -85,7 +85,6 @@ lifespan registers the two job listeners, loads the schedule store and starts th
 - `notify.py` — macOS notifications through osascript
 - `downloads_notify.py` — what to say about a finished download, and the batch bookkeeping that
   turns a whole season into one summary
-- `downloads_hooks.py` — post-download webhooks, stored in `data.json`
 - `config.py` — paths and settings
 - `schedule.py`, `progress.py`, `routers/`, `templates/`, `static/`
 
@@ -96,12 +95,12 @@ lifespan registers the two job listeners, loads the schedule store and starts th
 There is no database. Everything is JSON under
 `~/Library/Application Support/StreamingCommunity Downloader/`:
 
-- `data.json` — source domain, library paths, performance settings, domain-recovery switches,
-  naming templates, download hooks. Written only through `config.update_data()`, which holds the
+- `data.json` — source domain, download folder, performance settings, domain-recovery switches,
+  naming templates. Written only through `config.update_data()`, which holds the
   file lock: a background thread writes `domain` while the user may be saving something else.
 - `schedule.json` — scheduled downloads
 
-Downloads land in the configured library paths, defaulting to `~/Movies/StreamingCommunity`. Temp
+Downloads land in `config.download_dir()`, defaulting to `~/Movies/StreamingCommunity`. Temp
 segments go to `tmp/<job_id>/` under Application Support and are cleaned up afterwards.
 
 `DATA_FILE`, `SCHEDULE_FILE`, `TMP_DIR` and `VIDEOS_DIR` can be overridden by environment variables,
@@ -182,11 +181,6 @@ which is how the tests point them at a temporary directory.
   source" when the real failure was Cloudflare has been sent to debug the wrong thing, so the
   original exception is re-raised unchanged. AnimeUnity is excluded on purpose: no TMDB id,
   different embed host.
-- **Download hooks are HTTP-only, and blind.** There is no shell hook and there must not be one: the
-  settings are open to whoever has the window, so a command column would turn a settings form into a
-  shell. A webhook pointing at a private address is the *point*, so the mitigation is that the
-  response body never reaches the caller and is never logged — only the status code. Failure logs
-  name the hook, never its URL.
 - **Changing a naming template must not hide files already in the library.** `naming.render()` never
   raises — it runs inside a download, after the bytes are fetched — so everything it would paper
   over is refused by `naming.validate()` at save time. Never `str.format` a user template:
@@ -195,9 +189,6 @@ which is how the tests point them at a temporary directory.
   `scConfirm()` and text entry through `scPrompt()` in `app/static/app.js`, which resolve a Promise
   from a Tabler modal. A browser dialog ignores the theme and cannot be styled — and inside a
   webview it looks like the app itself has crashed into a system alert.
-- **An empty `events` array on a download hook means *every* event**, not none. Any UI offering a
-  selection has to express "all" as its own state, or unchecking the last box silently subscribes to
-  everything.
 - Blocking work goes through `asyncio.to_thread` (routers) or the job pool. The folder picker is the
   starkest case: it blocks until a human answers a dialog.
 
@@ -215,8 +206,10 @@ Re-adding any of these means re-adding the layer under it, which is the actual c
 - **Apprise notification channels.** Replaced by `app/notify.py`. Apprise also loads its plugins
   dynamically, which is the single worst thing to hand PyInstaller.
 - **Docker, the compose templates, the ghcr workflow.** The deliverable is a `.app`.
-- **`panel.db` and `app/db.py`.** Every table was `jf_*`; the only survivor was the download hooks,
-  now in `data.json`.
+- **`panel.db` and `app/db.py`.** Every table was `jf_*`, and the one that outlived the strip — the
+  download hooks — has since gone too.
+- **Post-download webhooks.** They existed to tell Jellyfin to rescan. With Jellyfin gone the
+  remaining use was "say when a download finished", which `app/notify.py` already does natively.
 
 ## Output layout
 

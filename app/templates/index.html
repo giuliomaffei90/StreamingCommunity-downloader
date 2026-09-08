@@ -1854,9 +1854,6 @@
           <li class="nav-item">
             <a class="nav-link" href="#" data-settings-tab="download">Download</a>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-settings-tab="hook">Hook</a>
-          </li>
         </ul>
 
         <div class="settings-pane" data-settings-pane="sorgente">
@@ -2066,59 +2063,6 @@
               Salva performance
             </button>
             <div id="perf-settings-feedback" class="form-text"></div>
-          </div>
-        </div>
-        </div>
-
-        <div class="settings-pane" data-settings-pane="hook" style="display:none">
-        <!-- ── Webhook ───────────────────────────────────────────────────── -->
-        <div class="settings-section">
-          <p class="settings-section-label">Webhook</p>
-          <p class="settings-section-hint">
-            Una chiamata HTTP quando un download finisce. Nel corpo si possono usare
-            <code>{title}</code>, <code>{path}</code>, <code>{status}</code>, <code>{type}</code>,
-            <code>{season}</code>, <code>{episode}</code>, <code>{year}</code> e
-            <code>{error}</code>. Con il corpo vuoto viene inviato un JSON con tutti i campi.
-          </p>
-          <p class="settings-section-hint" style="color:#e6a23c">
-            <i class="ti ti-alert-triangle me-1"></i>
-            Un webhook pu&ograve; puntare anche a servizi della rete locale. Il pannello non
-            restituisce mai la risposta ricevuta, solo l&rsquo;esito: chi configura un hook sa se ha
-            funzionato, non cosa ha risposto l&rsquo;altro capo.
-          </p>
-
-          <div id="hooks-list" class="mb-2"></div>
-
-          <div id="hook-form" class="row g-2 mb-2" style="display:none">
-            <div class="col-sm-4">
-              <input type="text" id="hook-name" class="form-control" placeholder="Nome (es. Jellyfin)">
-            </div>
-            <div class="col-sm-5">
-              <input type="text" id="hook-url" class="form-control" placeholder="http://jellyfin.local:8096/...">
-            </div>
-            <div class="col-sm-3">
-              <select id="hook-method" class="form-select">
-                <option value="POST">POST</option>
-                <option value="PUT">PUT</option>
-                <option value="GET">GET</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <textarea id="hook-body" class="form-control" rows="2"
-                        placeholder="Corpo, opzionale."></textarea>
-            </div>
-            <div class="col-12 d-flex justify-content-end">
-              <button type="button" class="btn btn-primary btn-sm" onclick="saveHook()" id="hook-save-btn">
-                Aggiungi
-              </button>
-            </div>
-          </div>
-
-          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleHookForm()" id="hook-add-btn">
-            <i class="ti ti-plus me-1"></i>Aggiungi webhook
-          </button>
-          <div class="settings-actions">
-            <div id="hooks-feedback" class="form-text"></div>
           </div>
         </div>
         </div>

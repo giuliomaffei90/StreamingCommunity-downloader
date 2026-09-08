@@ -12,14 +12,14 @@ from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 
-from app import __version__, downloads_hooks, downloads_notify
+from app import __version__, downloads_notify
 from app.core import domain_recovery
 from app.jobs import job_manager
 from app.schedule import ScheduleStore
 from app.config import SCHEDULE_FILE, download_dir
 from app.routers import (
     domain, search, tv, downloads, progress, files, images, anime,
-    metadata as metadata_router, download_hooks,
+    metadata as metadata_router,
 )
 
 logging.basicConfig(
@@ -86,9 +86,6 @@ async def lifespan(app: FastAPI):
     # rooted here too, and an absent root shows as an empty library.
     download_dir().mkdir(parents=True, exist_ok=True)
     downloads_notify.register_batch_listener()
-    # Registered after the notification one so outbound side effects cannot
-    # delay or swallow the user's own notification.
-    downloads_hooks.register_hook_listener()
     store = ScheduleStore(SCHEDULE_FILE)
     job_manager.set_schedule_store(store)
     job_manager.load_scheduled_from_store()
@@ -110,7 +107,6 @@ templates.env.globals["asset"] = asset
 
 app.include_router(domain.router)
 app.include_router(metadata_router.router)
-app.include_router(download_hooks.router)
 app.include_router(search.router)
 app.include_router(tv.router)
 app.include_router(downloads.router)
