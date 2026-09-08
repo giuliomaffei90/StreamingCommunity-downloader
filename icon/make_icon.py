@@ -33,10 +33,12 @@ SCALE = 4  # drawn this many times larger, then downsampled
 PLATE = 824
 PLATE_RADIUS = 185
 
-# From the interface's palette. ACCENT is --accent; the other two are it lifted
-# and dropped, so the plate reads as one colour with light falling on it.
-ACCENT_TOP = (240, 60, 96)
-ACCENT_BOTTOM = (166, 20, 55)
+# A red plate, lighter at the top and darker at the bottom so it reads as one
+# colour with light falling on it. Deliberately redder than the interface's
+# --accent (#e02444), which leans crimson: at 32 pixels in the Dock that lean
+# reads as pink rather than as red.
+ACCENT_TOP = (240, 58, 48)
+ACCENT_BOTTOM = (163, 16, 16)
 GLYPH = (255, 255, 255)
 
 
