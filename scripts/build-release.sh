@@ -25,6 +25,25 @@ fi
 echo "==> Test"
 "$PYTHON" -m pytest -q
 
+# After the tests, so a red run does not close an app you were using for
+# nothing. Before anything is deleted: this build wipes dist/ and replaces the
+# copy in ~/Downloads, and replacing a bundle whose binary is still mapped
+# leaves an app that is half one version and half the other.
+echo "==> Chiusura istanze in esecuzione"
+if pkill -f "$APP_NAME/Contents/MacOS/" 2>/dev/null; then
+  echo "   chiusa, attendo che esca"
+  # SIGTERM first, above. An in-flight download dies either way, but a process
+  # given a moment to go is one that cannot still hold the bundle open when the
+  # copy starts.
+  for _ in $(seq 1 20); do
+    pgrep -f "$APP_NAME/Contents/MacOS/" >/dev/null || break
+    sleep 0.25
+  done
+  pkill -9 -f "$APP_NAME/Contents/MacOS/" 2>/dev/null || true
+else
+  echo "   nessuna in esecuzione"
+fi
+
 echo "==> Build"
 rm -rf build dist
 "$PYTHON" -m PyInstaller StreamingCommunity.spec --noconfirm --clean

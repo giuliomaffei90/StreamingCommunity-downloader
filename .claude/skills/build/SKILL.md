@@ -11,12 +11,15 @@ Run the script. It does everything and stops at the first thing that is wrong:
 ./scripts/build-release.sh
 ```
 
-It runs the tests, builds `StreamingCommunity.spec`, checks the bundle actually
-contains what it needs, and copies the result to `~/Downloads`.
+It runs the tests, closes any running instance of the app, builds
+`StreamingCommunity.spec`, checks the bundle actually contains what it needs,
+and copies the result over whatever is in `~/Downloads`.
 
 ## Report back
 
 - Where it landed, its version and its size — the script prints all three.
+- That a running instance was closed, if the script said so — a download that
+  was in flight did not survive it.
 - That it is unsigned: on this Mac it opens normally, elsewhere it needs
   right-click → Open the first time.
 
