@@ -57,7 +57,8 @@ def test_every_stream_is_carried_over():
     cmd = transcode.build_command("in.mp4", "out.mp4", copy_audio=True)
 
     assert "-map" in cmd and cmd[cmd.index("-map") + 1] == "0"
-    assert _flags(cmd)["-c:s"] == "copy"
+    # MP4 defines one text codec, so a WebVTT track from an MKV is converted.
+    assert _flags(cmd)["-c:s"] == "mov_text"
     assert _flags(cmd)["-map_metadata"] == "0"
     assert _flags(cmd)["-map_chapters"] == "0"
 
@@ -78,9 +79,22 @@ def test_other_audio_goes_to_aac_stereo_at_the_preset_bitrate():
 
 # ── Never lose the download ───────────────────────────────────────────────────
 
-def _ffmpeg(monkeypatch, returncode=0, produces=None):
-    """Stand in for the encoder, optionally writing an output of a given size."""
+class _Stdout(list):
+    """ffmpeg's -progress stream, and closable like the real pipe."""
+    def close(self):
+        pass
+
+
+def _ffmpeg(monkeypatch, returncode=0, produces=None, progress=()):
+    """Stand in for the encoder, optionally writing an output of a given size.
+
+    Both probes are stubbed rather than left to the Popen fake: subprocess.run
+    is built on Popen, so an unscoped fake also catches the ffprobe calls —
+    whose last argument is the *source* file, which the fake would then
+    overwrite.
+    """
     monkeypatch.setattr(transcode, "_audio_is_already_aac", lambda path: True)
+    monkeypatch.setattr(transcode, "duration_seconds", lambda path: 100.0)
 
     class _Process:
         def __init__(self, cmd, **kwargs):
@@ -89,9 +103,14 @@ def _ffmpeg(monkeypatch, returncode=0, produces=None):
                 with open(self._out, "wb") as handle:
                     handle.write(b"y" * produces)
             self.returncode = returncode
+            self.stdout = _Stdout(f"out_time_us={int(s * 1_000_000)}\n".encode()
+                                  for s in progress)
 
-        def communicate(self, timeout=None):
-            return b"", b"boom"
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
 
     monkeypatch.setattr(transcode.subprocess, "Popen", _Process)
 
@@ -126,6 +145,7 @@ def test_an_encoder_that_will_not_start_keeps_the_file(monkeypatch, video):
         raise OSError("no ffmpeg")
 
     monkeypatch.setattr(transcode, "_audio_is_already_aac", lambda path: True)
+    monkeypatch.setattr(transcode, "duration_seconds", lambda path: 100.0)
     monkeypatch.setattr(transcode.subprocess, "Popen", boom)
 
     assert transcode.transcode(str(video)) == str(video)
@@ -185,23 +205,77 @@ def test_cancelling_stops_it_and_keeps_the_file(monkeypatch, video):
     """A cancel during the encode must leave the downloaded file untouched."""
     killed = []
 
+    class _Stream(list):
+        def close(self):
+            pass
+
     class _Process:
         def __init__(self, cmd, **kwargs):
             self.returncode = None
-
-        def communicate(self, timeout=None):
-            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+            self.stdout = _Stream([b"out_time_us=1000000\n"] * 5)
 
         def kill(self):
             killed.append(True)
 
         def wait(self):
-            pass
+            return 0
 
     monkeypatch.setattr(transcode, "_audio_is_already_aac", lambda path: True)
+    monkeypatch.setattr(transcode, "duration_seconds", lambda path: 100.0)
     monkeypatch.setattr(transcode.subprocess, "Popen", _Process)
     cancel = SimpleNamespace(is_set=lambda: True)
 
     assert transcode.transcode(str(video), cancel_event=cancel) == str(video)
     assert killed == [True]
     assert video.stat().st_size == 5_000_000
+
+
+# ── The container, and the progress it reports ────────────────────────────────
+
+def test_an_mkv_becomes_an_mp4_and_the_mkv_goes(monkeypatch, tmp_path):
+    """MP4 is what the preset asks for. MKV was only chosen to carry several
+    audio tracks, which MP4 carries too."""
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "Serie S01E01.mkv"
+    source.write_bytes(b"x" * 5_000_000)
+    _ffmpeg(monkeypatch, produces=1_000_000)
+
+    result = transcode.transcode(str(source))
+
+    assert result.endswith("Serie S01E01.mp4")
+    assert not source.exists(), "the MKV must not be left beside its replacement"
+    assert (library / "Serie S01E01.mp4").stat().st_size == 1_000_000
+
+
+def test_a_failed_encode_leaves_the_mkv_alone(monkeypatch, tmp_path):
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "Serie S01E01.mkv"
+    source.write_bytes(b"x" * 5_000_000)
+    _ffmpeg(monkeypatch, returncode=1, produces=1_000)
+
+    assert transcode.transcode(str(source)) == str(source)
+    assert source.stat().st_size == 5_000_000
+    assert [p.name for p in library.iterdir()] == ["Serie S01E01.mkv"]
+
+
+def test_progress_is_reported_in_video_seconds(monkeypatch, video):
+    """Fed video seconds, the bar's own rate becomes the encoder's multiplier
+    and its estimate comes out in real time."""
+    _ffmpeg(monkeypatch, produces=1_000_000, progress=(10, 45, 90))
+    seen = []
+
+    transcode.transcode(str(video), on_progress=seen.append)
+
+    assert seen == [10, 45, 90]
+
+
+def test_progress_never_overshoots_the_total(monkeypatch, video):
+    """ffmpeg can report a time slightly past the duration ffprobe gave."""
+    _ffmpeg(monkeypatch, produces=1_000_000, progress=(99, 105))
+    seen = []
+
+    transcode.transcode(str(video), on_progress=seen.append)
+
+    assert seen == [99, 100.0]

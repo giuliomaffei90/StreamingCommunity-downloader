@@ -432,7 +432,19 @@ class JobManager:
         if not result or not transcode.enabled():
             return result
         self._emit(job, {"type": "status", "phase": "transcoding"})
-        return transcode.transcode(result, cancel_event=job.cancel_event)
+
+        # Fed video seconds, the bar's own rate becomes video-seconds per real
+        # second — ffmpeg's "speed" multiplier — so its estimate comes out in
+        # real time with no arithmetic of ours.
+        total = transcode.duration_seconds(result)
+        bar = self._make_progress_factory(job)(total=round(total or 0), phase="transcoding")
+
+        def on_progress(seconds: float):
+            bar.n = round(seconds)
+            bar.update(0)
+
+        return transcode.transcode(result, cancel_event=job.cancel_event,
+                                   on_progress=on_progress if total else None)
 
     def _submit_job(self, job: DownloadJob, fn, *args, call_type: str = None,
                     params: dict = None, **kwargs) -> str:

@@ -9,10 +9,10 @@ worth imposing.
 
 Where this departs from the preset, and why:
 
-* **The container is left alone.** The preset says MP4; this app already picks
-  MP4 for one audio track and MKV for several, because carrying several
-  languages is what MKV is for. Forcing MP4 here would fight a decision made
-  for a reason the preset knows nothing about.
+* **The output is always MP4**, as the preset says, even when the download was
+  MKV for carrying several audio tracks — MP4 holds those too. Its subtitles do
+  have to become ``mov_text``, the only text codec MP4 defines, which is why
+  they are converted rather than copied.
 * **Audio that is already AAC is copied, not re-encoded.** HandBrake encodes to
   AAC because its sources are AC3 or DTS; this source is AAC stereo already, so
   re-encoding it is pure generation loss for no gain. Anything else does go
@@ -79,11 +79,33 @@ def _audio_is_already_aac(path: str) -> bool:
     return bool(codecs) and all(c == "aac" for c in codecs)
 
 
+def duration_seconds(path: str) -> float | None:
+    """How long the video is, for the progress bar to have a total.
+
+    None when ffprobe is absent or cannot say — the encode still runs, it just
+    reports no percentage.
+    """
+    ffprobe = get_ffprobe_exe()
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", path],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
 def build_command(source: str, destination: str, *, copy_audio: bool) -> list[str]:
     """The ffmpeg call. Separate from running it so a test can read the flags."""
     cmd = [
         get_ffmpeg_exe(), "-y",
         "-i", ffmpeg_file_arg(source),
+        # Machine-readable progress on stdout instead of the human status line.
+        "-progress", "pipe:1", "-nostats",
         # Everything the file carries, not just the first of each kind: a
         # download may hold several languages and their subtitles.
         "-map", "0",
@@ -99,45 +121,70 @@ def build_command(source: str, destination: str, *, copy_audio: bool) -> list[st
     cmd += ["-c:a", "copy"] if copy_audio else [
         "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ac", "2",
     ]
+    # MP4 defines exactly one text subtitle codec, so a WebVTT or ASS track
+    # carried in from an MKV has to be converted rather than copied.
     # ChapterMarkers and MetadataPassthru in the preset.
-    cmd += ["-c:s", "copy", "-map_metadata", "0", "-map_chapters", "0"]
+    cmd += ["-c:s", "mov_text", "-map_metadata", "0", "-map_chapters", "0"]
     cmd.append(ffmpeg_file_arg(destination))
     return cmd
 
 
-def transcode(path: str, cancel_event=None) -> str:
-    """Re-encode *path* in place. Returns the path, transcoded or not.
+def transcode(path: str, cancel_event=None, on_progress=None) -> str:
+    """Re-encode *path* to MP4. Returns the resulting path, transcoded or not.
 
-    Never raises and never removes the original before the new file is complete.
-    The download already succeeded by the time this runs; a failure here must
-    cost the user a smaller file, never the file.
+    Never raises, and never removes the original before the new file is
+    complete. The download already succeeded by the time this runs; a failure
+    here must cost the user a smaller file, never the file.
     """
     source = Path(path)
     if not source.is_file():
         logger.warning("Nothing to transcode at %s", path)
         return path
 
-    handle, temp_path = tempfile.mkstemp(suffix=source.suffix, dir=str(source.parent))
+    # The preset's container. When the download was MKV the result replaces it
+    # under a new name, so the old file has to go once the new one is in place.
+    final = source.with_suffix(".mp4")
+    handle, temp_path = tempfile.mkstemp(suffix=".mp4", dir=str(source.parent))
     os.close(handle)
+    errors = tempfile.TemporaryFile()
 
+    total = duration_seconds(str(source))
     cmd = build_command(str(source), temp_path, copy_audio=_audio_is_already_aac(str(source)))
     logger.info("Transcoding %s", source.name)
 
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        while True:
-            try:
-                _, stderr = process.communicate(timeout=1)
-                break
-            except subprocess.TimeoutExpired:
+        # stderr goes to a file rather than a pipe nobody drains: a long encode
+        # can emit enough warnings to fill a pipe and deadlock on writing to it.
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errors)
+        cancelled = False
+        try:
+            for raw in process.stdout:
                 if cancel_event is not None and cancel_event.is_set():
                     process.kill()
-                    process.wait()
-                    logger.info("Transcode cancelled for %s", source.name)
-                    return path
+                    cancelled = True
+                    break
+                if on_progress is None:
+                    continue
+                line = raw.decode("utf-8", "replace").strip()
+                if line.startswith("out_time_us="):
+                    value = line.split("=", 1)[1]
+                    if value.isdigit():
+                        seconds = int(value) / 1_000_000
+                        try:
+                            on_progress(min(seconds, total) if total else seconds)
+                        except Exception:
+                            logger.exception("Transcode progress callback failed")
+        finally:
+            process.stdout.close()
+        process.wait()
+
+        if cancelled:
+            logger.info("Transcode cancelled for %s", source.name)
+            return path
 
         if process.returncode != 0:
-            tail = (stderr or b"").decode("utf-8", "replace").strip().splitlines()[-3:]
+            errors.seek(0)
+            tail = errors.read().decode("utf-8", "replace").strip().splitlines()[-3:]
             logger.warning("Transcode failed for %s, keeping the original: %s",
                            source.name, " / ".join(tail))
             return path
@@ -152,13 +199,17 @@ def transcode(path: str, cancel_event=None) -> str:
                         source.name, before, after)
             return path
 
-        os.replace(temp_path, source)
-        logger.info("Transcoded %s: %d -> %d bytes (-%d%%)",
-                    source.name, before, after, round(100 * (before - after) / before))
-        return path
+        os.replace(temp_path, final)
+        if final != source:
+            source.unlink(missing_ok=True)
+        logger.info("Transcoded %s -> %s: %d -> %d bytes (-%d%%)",
+                    source.name, final.name, before, after,
+                    round(100 * (before - after) / before))
+        return str(final)
     except Exception:
         logger.exception("Transcode of %s raised, keeping the original", source.name)
         return path
     finally:
+        errors.close()
         if os.path.exists(temp_path):
             os.unlink(temp_path)

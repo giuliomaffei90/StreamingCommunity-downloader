@@ -1549,6 +1549,14 @@ function _revealBtnHtml(jobId, status, outputPath) {
           </button>`;
 }
 
+// Segments per second while downloading; during a transcode the same number is
+// video-seconds per real second, which is the multiplier ffmpeg itself reports.
+function _rateText(phase, bytesSpeed, speed) {
+  if (phase === 'transcoding') return speed > 0 ? `${speed}\u00d7` : '';
+  if (bytesSpeed > 0) return formatSize(bytesSpeed) + '/s';
+  return speed > 0 ? `${speed} seg/s` : '';
+}
+
 function _buildJobCard(j) {
   const phase = _jobPhases[j.job_id] || j.status;
   const isActive = j.status==='running' || j.status==='queued' || j.status==='scheduled';
@@ -1566,7 +1574,7 @@ function _buildJobCard(j) {
   const bytesSpeed = j.progress?.bytes_speed;
   const eta = j.progress?.eta;
   const speedStr = (isActive && j.status!=='queued')
-    ? (bytesSpeed > 0 ? formatSize(bytesSpeed) + '/s' : (speed > 0 ? `${speed} seg/s` : ''))
+    ? _rateText(phase, bytesSpeed, speed)
     : '';
   const etaStr = eta ? fmtEta(eta) : '';
   const infoStr = [speedStr, etaStr].filter(Boolean).join(' · ');
@@ -1728,9 +1736,11 @@ function updateActiveBadge() {
 
 function handleProgressEvent(msg) {
   const job = _jobs.get(msg.job_id);
+  // Declared out here because the rate line below needs it: a transcode reports
+  // a multiplier where a download reports segments per second.
+  const phase = msg.phase || _jobPhases[msg.job_id] || 'running';
   if (job) {
     job.progress = { current:msg.current, total:msg.total, pct:msg.pct, speed:msg.speed||0, bytes_speed:msg.bytes_speed||0, eta:msg.eta||null };
-    const phase = msg.phase || _jobPhases[msg.job_id] || 'running';
     const prevPhase = _jobPhases[msg.job_id];
     _jobPhases[msg.job_id] = phase;
     if (phase !== prevPhase) _updateSteps(msg.job_id, phase);
@@ -1740,7 +1750,7 @@ function handleProgressEvent(msg) {
   if (bar) bar.style.width = msg.pct + '%';
   const info = document.getElementById(`job-info-${msg.job_id}`);
   if (info) {
-    const speedStr = msg.bytes_speed > 0 ? formatSize(msg.bytes_speed) + '/s' : (msg.speed > 0 ? `${msg.speed} seg/s` : '');
+    const speedStr = _rateText(phase, msg.bytes_speed, msg.speed);
     const etaStr = msg.eta ? fmtEta(msg.eta) : '';
     info.textContent = [speedStr, etaStr, `${msg.pct}%`].filter(Boolean).join(' · ');
   }
@@ -1761,12 +1771,12 @@ function handlePhaseEvent(jobId, phase) {
   const bar = document.getElementById(`job-bar-${jobId}`);
   if (bar) {
     bar.className = `progress-bar ${_phaseBar(phase)} progress-bar-striped progress-bar-animated job-progress-bar`;
-    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase === 'transcoding' || phase.startsWith('audio_');
+    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase.startsWith('audio_');
     if (isIndeterminate) bar.style.width = '100%';
   }
   const info = document.getElementById(`job-info-${jobId}`);
   if (info) {
-    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase === 'transcoding';
+    const isIndeterminate = phase === 'joining' || phase === 'merging';
     if (isIndeterminate) info.textContent = _phaseLabel(phase) + '...';
   }
   _updateSteps(jobId, phase);
