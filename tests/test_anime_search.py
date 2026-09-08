@@ -127,3 +127,32 @@ def test_more_than_eight_results_survive_normalisation(source):
     source([_record(n) for n in range(30)])
 
     assert len(animeunity.search("show")) == 30
+
+
+def test_plot_and_genres_ride_along_with_the_search(source):
+    """The detail panel is filled from the search record, not a second request.
+
+    genres arrive as rows with ids and pivot tables; the panel wants names, and
+    a row without one must not become an empty badge.
+    """
+    source([_record(1) | {
+        "plot": "Un ninja.",
+        "genres": [{"id": 51, "name": "Action", "pivot": {}},
+                   {"id": 21, "name": "Shounen", "pivot": {}},
+                   {"id": 99, "pivot": {}}],
+    }])
+
+    result = animeunity.search("show")[0]
+
+    assert result["plot"] == "Un ninja."
+    assert result["genres"] == ["Action", "Shounen"]
+
+
+def test_a_record_with_neither_is_still_usable(source):
+    """Older or sparse rows carry no plot and no genres."""
+    source([_record(1)])
+
+    result = animeunity.search("show")[0]
+
+    assert result["plot"] == ""
+    assert result["genres"] == []

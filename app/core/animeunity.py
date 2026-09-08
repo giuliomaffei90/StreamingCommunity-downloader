@@ -68,6 +68,11 @@ def _normalize_titles(titles: list) -> list[dict]:
             "slug": slug,
             "poster": poster,
             "episodes_count": t.get("episodes_count", 0),
+            # The archive endpoint returns these with the search, so the detail
+            # panel costs no request of its own. genres arrive as rows with ids
+            # and pivot tables; the panel wants names.
+            "plot": t.get("plot") or "",
+            "genres": [g.get("name") for g in (t.get("genres") or []) if g.get("name")],
             "score": t.get("score") or t.get("vote"),
             "release_date": t.get("date") or t.get("release_date") or "",
         })

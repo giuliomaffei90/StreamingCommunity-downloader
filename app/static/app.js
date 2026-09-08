@@ -963,31 +963,24 @@ function renderTitleMetadata(meta) {
 
 function renderDetailSourceError(detail) {
   _detailState.langsError = detail;
-  const langsEl = document.getElementById('detail-langs');
-  const trimmed = (detail || '').slice(0, 140);
-  // No alternative provider is registered (see app/core/_shared.py), so this
-  // must not promise one. Saying "the alternative source will be tried" when
-  // nothing will be tried is worse than the silence this replaced.
-  langsEl.innerHTML =
-    `<div class="alert bg-warning py-1 px-2 mb-0 small" style="border-color:#e6a23c">
-       <i class="ti ti-alert-triangle me-1"></i>
-       Sorgente non raggiungibile per questo titolo. Le lingue non sono selezionabili
-       e il download potrebbe fallire.
-       ${trimmed ? `<div class="text-muted mt-1">${escapeHtml(trimmed)}</div>` : ''}
-     </div>`;
-
-  // Deliberately still enabled. The fallback may well work, and disabling the
-  // button removes the one path that might; saying so is the honest version of
-  // taking the choice away.
-  const btn = document.getElementById('detail-action-btn');
-  if (btn) {
-    // The title goes on regardless: "Richiedi" is already btn-warning for its
-    // own reason, and the tooltip is what actually carries the warning.
-    btn.title = hasFallback
-      ? 'La sorgente principale non risponde: verr\u00e0 tentata quella alternativa.'
-      : 'La sorgente non risponde: il download potrebbe fallire.';
-    if (!btn.className.includes('btn-warning')) btn.className = 'btn btn-warning';
-  }
+  // Deliberately not a warning panel. The track list could not be fetched, and
+  // what stood here was an alarm box quoting a raw HTTP error — nothing the
+  // reader could act on, on a title that usually downloads fine anyway. The
+  // download falls back to Italian when no track is picked, so the panel says
+  // that, in the same shape as a title that genuinely offers one language.
+  // The real error stays in the console for whoever is debugging.
+  if (detail) console.warn('Track list unavailable:', detail);
+  document.getElementById('detail-langs').innerHTML =
+    `<div class="mb-1"><span class="text-muted me-1"><i class="ti ti-volume ti-sm"></i> Audio:</span>` +
+    `<label class="me-2 mb-1" style="cursor:pointer">` +
+    `<input type="checkbox" class="lang-audio-check me-1" value="ita" checked>` +
+    `<span class="badge bg-blue-lt">${langName('ita')}</span></label></div>`;
+  // What stood here turned the action button orange with a warning tooltip. It
+  // never ran once: it read a `hasFallback` that is not defined anywhere in
+  // this file and never was, so the function threw a ReferenceError on the line
+  // after the panel was drawn — which is why the button always stayed its
+  // normal colour. Removed rather than repaired: the title usually downloads
+  // fine, and the alarm was the thing being complained about.
 }
 
 function openDetailModal(idx) {
@@ -1067,6 +1060,11 @@ function openDetailModal(idx) {
   const langsEl = document.getElementById('detail-langs');
   if (isAnime) {
     langsEl.innerHTML = '';
+    // Same panel as a film or a series, filled from the search record itself:
+    // AnimeUnity returns the plot and the genres with the search, so there is
+    // nothing to go and fetch. Tracks are chosen per episode further in, which
+    // is why nothing is asked about languages here.
+    renderTitleMetadata({plot: item.plot, genres: item.genres});
     showModal('detail-modal');
     return;
   }
