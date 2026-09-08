@@ -1540,6 +1540,15 @@ function _retryBtnHtml(jobId, status) {
           </button>`;
 }
 
+// A finished download is a file somewhere, and the panel is the only thing that
+// knows where. Without this the user has to go and find it by name.
+function _revealBtnHtml(jobId, status, outputPath) {
+  if (status !== 'done' || !outputPath) return '';
+  return `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="revealFile('${jobId}')" title="Mostra nel Finder">
+            <i class="ti ti-folder-search"></i>
+          </button>`;
+}
+
 function _buildJobCard(j) {
   const phase = _jobPhases[j.job_id] || j.status;
   const isActive = j.status==='running' || j.status==='queued' || j.status==='scheduled';
@@ -1571,6 +1580,7 @@ function _buildJobCard(j) {
          <i class="ti ti-player-stop"></i>
        </button>` : '';
   const retryBtn = _retryBtnHtml(j.job_id, j.status);
+  const revealBtn = _revealBtnHtml(j.job_id, j.status, j.output_path);
 
   const rawTs = j.scheduled_at || j.created_at;
   const dateStr = rawTs
@@ -1586,6 +1596,7 @@ function _buildJobCard(j) {
         <span class="fw-medium text-truncate flex-1" style="min-width:0" title="${escapeHtml(j.title)}">${escapeHtml(j.title)}</span>
         <span class="badge ${badgeClass} flex-shrink-0" id="job-badge-${j.job_id}">${label}</span>
         <span id="job-fire-${j.job_id}">${fireBtn}</span>
+        <span id="job-reveal-${j.job_id}">${revealBtn}</span>
         <span id="job-retry-${j.job_id}">${retryBtn}</span>
         ${stopBtn ? `<span id="job-stop-${j.job_id}">${stopBtn}</span>` : `<span id="job-stop-${j.job_id}"></span>`}
       </div>
@@ -1681,6 +1692,8 @@ function refreshCardAppearance(jobId) {
   }
   const retry = document.getElementById(`job-retry-${jobId}`);
   if (retry) retry.innerHTML = _retryBtnHtml(jobId, j.status);
+  const reveal = document.getElementById(`job-reveal-${jobId}`);
+  if (reveal) reveal.innerHTML = _revealBtnHtml(jobId, j.status, j.output_path);
 
   // Update info text
   const info = document.getElementById(`job-info-${jobId}`);
@@ -1778,6 +1791,8 @@ function handleDoneEvent(jobId, outputPath) {
   if (info) info.textContent='Completato';
   const stop = document.getElementById(`job-stop-${jobId}`);
   if (stop) stop.innerHTML='';
+  const reveal = document.getElementById(`job-reveal-${jobId}`);
+  if (reveal) reveal.innerHTML = _revealBtnHtml(jobId, 'done', outputPath);
 
   updateActiveBadge();
   // Refresh file manager if open
@@ -1810,6 +1825,19 @@ async function fireNow(jobId) {
     const res = await fetch(`/api/download/${jobId}/fire`, {method:'POST'});
     if (!res.ok) { const d=await safeJson(res); showToast(d.detail||'Errore','danger'); }
   } catch(e) { showToast('Errore di rete','danger'); }
+}
+
+async function revealFile(jobId) {
+  const job = _jobs.get(jobId);
+  if (!job || !job.output_path) return;
+  try {
+    const res = await fetch('/api/files/reveal', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: job.output_path}),
+    });
+    if (!res.ok) { const d = await safeJson(res); showToast(_detailText(d) || 'Errore', 'danger'); }
+  } catch (e) { showToast('Errore di rete', 'danger'); }
 }
 
 async function retryJob(jobId) {

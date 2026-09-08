@@ -88,6 +88,20 @@ async def get_disk_usage():
     return await asyncio.to_thread(_compute_disk_usage)
 
 
+# What this app produces, and nothing else. The download folder is very often a
+# folder the user already keeps other things in — ~/Downloads being the obvious
+# one — and listing all of it turns the File tab into a second Finder showing
+# archives, spreadsheets and installers.
+_MEDIA_SUFFIXES = {
+    ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".ts",
+    ".vtt", ".srt", ".ass", ".sub",  # subtitle sidecars written beside a video
+}
+
+
+def _is_media(path: Path) -> bool:
+    return path.suffix.lower() in _MEDIA_SUFFIXES
+
+
 def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
     entries = []
     try:
@@ -96,14 +110,19 @@ def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
                 continue
             if item.is_dir():
                 children = _build_tree(item, base, excluded)
+                # A directory with no media anywhere beneath it is somebody
+                # else's folder, not a download: drop it rather than show it
+                # empty.
+                if not children:
+                    continue
                 entries.append({
                     "name": item.name,
                     "type": "directory",
                     "path": str(item.relative_to(base)),
                     "children": children,
-                    "empty": len(children) == 0,
+                    "empty": False,
                 })
-            elif item.is_file():
+            elif item.is_file() and _is_media(item):
                 stat = item.stat()
                 entries.append({
                     "name": item.name,
@@ -134,7 +153,7 @@ def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list
                         "type": "directory",
                         "path": str(item.relative_to(base)),
                     })
-                elif item.is_file():
+                elif item.is_file() and _is_media(item):
                     stat = item.stat()
                     results.append({
                         "name": item.name,
@@ -370,3 +389,34 @@ def _choose_folder_sync() -> str | None:
 async def pick_folder():
     path = await asyncio.to_thread(_choose_folder_sync)
     return {"path": path}
+
+
+# ── Showing a file in the Finder ──────────────────────────────────────────────
+
+class RevealRequest(BaseModel):
+    path: str
+
+
+@router.post("/reveal")
+async def reveal(body: RevealRequest):
+    """Open the Finder with the file selected.
+
+    Takes an absolute path because that is what a finished job carries, but
+    refuses anything outside the download folder: revealing is harmless in
+    itself, and constraining it anyway keeps the endpoint from becoming a way to
+    point the Finder at any file on the machine.
+    """
+    target = Path(body.path).expanduser()
+    base = download_dir().resolve()
+    try:
+        resolved = target.resolve()
+    except OSError:
+        raise HTTPException(status_code=400, detail="Percorso non valido")
+    if not resolved.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="Percorso fuori dalla cartella dei download")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Il file non esiste più")
+
+    await asyncio.to_thread(subprocess.run, ["open", "-R", str(resolved)],
+                            capture_output=True, timeout=10)
+    return {"ok": True}
