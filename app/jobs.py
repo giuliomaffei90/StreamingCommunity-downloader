@@ -149,6 +149,18 @@ class JobManager:
         except ValueError:
             pass
 
+    def _refresh_dock(self):
+        """Keep the Dock badge in step with the job list.
+
+        Driven from the same points that already push to the browser, so it
+        cannot show a state the panel does not.
+        """
+        from app import dock
+
+        with self._lock:
+            jobs = list(self._jobs.values())
+        dock.update(jobs)
+
     def _broadcast(self, event: dict):
         """Thread-safe push to all global SSE subscribers."""
         if self._loop:
@@ -227,6 +239,7 @@ class JobManager:
                     "eta": ev.get("eta"),
                 }
             manager._broadcast({**ev, "job_id": job.job_id})
+            manager._refresh_dock()
 
         def factory(**kwargs):
             total = kwargs.get("total", 0)
@@ -394,6 +407,7 @@ class JobManager:
 
                 job.status = "running"
                 self._broadcast({"type": "job_status", "job_id": job.job_id, "status": "running"})
+                self._refresh_dock()
 
                 try:
                     result = fn(*args, **kwargs)
@@ -415,6 +429,7 @@ class JobManager:
                         shutil.rmtree(tmp_path, ignore_errors=True)
                         logger.info("Cleaned up temp dir: %s", tmp_path)
         finally:
+            self._refresh_dock()
             from app import history
             history.record(job)
             self._notify_listeners(job)

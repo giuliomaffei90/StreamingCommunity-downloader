@@ -78,6 +78,10 @@ def main():
         logger.error("The server did not start within %ss", STARTUP_TIMEOUT)
         sys.exit(1)
 
+    from app import dock
+
+    dock.activate()
+
     import webview
 
     webview.create_window(
