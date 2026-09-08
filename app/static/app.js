@@ -235,6 +235,10 @@ function setSource(src) {
   document.getElementById('src-au').classList.toggle('active', src === 'animeunity');
   const input = document.getElementById('search-input');
   if (input) input.placeholder = src === 'animeunity' ? 'Cerca anime...' : 'Film, serie TV...';
+  // Only AnimeUnity publishes a dub flag, so the switch would be a dead
+  // control on the other source rather than one that simply does nothing.
+  const dubFilter = document.getElementById('dub-filter');
+  if (dubFilter) dubFilter.style.display = src === 'animeunity' ? '' : 'none';
   document.getElementById('search-results').innerHTML = '';
 }
 
@@ -787,6 +791,9 @@ async function doSearch() {
   _showSearchSkeletons();
   try {
     const searchParams = new URLSearchParams({ q, source: currentSource });
+    if (currentSource === 'animeunity' && document.getElementById('dub-only')?.checked) {
+      searchParams.set('dubbed_only', 'true');
+    }
     const res = await fetch(`/api/search?${searchParams}`, {signal: _searchAbort.signal});
     const container = document.getElementById('search-results');
     const results = await safeJson(res);

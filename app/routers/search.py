@@ -31,10 +31,11 @@ def _domain() -> str:
 async def search(
     q: str = Query(..., min_length=1),
     source: str = Query(default="streamingcommunity"),
+    dubbed_only: bool = Query(default=False),
 ):
     try:
         if source == "animeunity":
-            results = await asyncio.to_thread(animeunity.search, q)
+            results = await asyncio.to_thread(animeunity.search, q, dubbed_only)
         else:
             results = await asyncio.to_thread(core_search, q, _domain())
     except HTTPException:

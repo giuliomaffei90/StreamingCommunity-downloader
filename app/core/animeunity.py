@@ -65,10 +65,15 @@ def _normalize_titles(titles: list) -> list[dict]:
     return results
 
 
-def search(query: str) -> list[dict]:
+def search(query: str, dubbed_only: bool = False) -> list[dict]:
     """
     Search for anime on AnimeUnity using the /livesearch endpoint.
     Handles CSRF token requirements for Laravel protection.
+
+    ``dubbed_only`` keeps just the Italian dubs. The source publishes a ``dub``
+    flag per title and a dubbed entry is a separate record from its subtitled
+    one — same anime, own id and slug — so this is a filter over records, not a
+    property of a title.
     """
     scraper = _get_scraper()
     host = ANIMEUNITY_HOST
@@ -124,6 +129,20 @@ def search(query: str) -> list[dict]:
     try:
         data = r.json()
         records = data.get("records", [])
+        if dubbed_only and records:
+            # Before _normalize_titles, which stops at 21: filtering after the
+            # cut would drop dubs that were there, in favour of subtitled
+            # entries that got counted first and then thrown away.
+            #
+            # Guarded on `records` so an already-empty answer falls through to
+            # the raise below: a search that found nothing at all is a
+            # different thing from one whose results were all subtitled.
+            records = [r for r in records if r.get("dub")]
+            # Nothing dubbed is an answer, not a failure. The raise below means
+            # the search itself found nothing, and it surfaces as a red error
+            # box — the wrong thing to show someone who has just ticked a box.
+            if not records:
+                return []
         if records:
             result = _normalize_titles(records)
             if result:
