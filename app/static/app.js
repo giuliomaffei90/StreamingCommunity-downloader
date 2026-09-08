@@ -1257,7 +1257,6 @@ async function openEpisodeBrowser(tvId, tvName, slug, year=null, scheduledAt=nul
   document.getElementById('episode-modal-body').innerHTML =
     '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
   showModal('episode-modal');
-  checkWatchStatus('tv');
 
   try {
     const [tokenData, seasonsData] = await Promise.all([
@@ -1415,7 +1414,6 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
   document.getElementById('anime-modal-body').innerHTML =
     '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
   showModal('anime-modal');
-  checkWatchStatus('anime');
 
   try {
     const res = await fetch(`/api/anime/${encodeURIComponent(animeId)}/episodes`);
