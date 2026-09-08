@@ -251,9 +251,27 @@ def set_app_settings(body: SettingsUpdate):
     return new_settings
 
 
+def _normalise_domain(raw: str) -> str:
+    """Reduce what a person pastes to the hostname this stores.
+
+    The field wants a bare host, but the obvious thing to paste is the address
+    from a browser — scheme, trailing slash and all. Passed through untouched it
+    reached the connection pool as host='https', an error that names neither the
+    mistake nor the field it was made in.
+
+    Only the manual path: the recovery path has its own, deliberately stricter
+    check in domain_recovery.verify(), because a person typing a host in is
+    making a decision and a web page is not.
+    """
+    text = raw.strip()
+    if "//" in text:
+        text = text.split("//", 1)[1]
+    return text.split("/", 1)[0].strip()
+
+
 @router.put("")
 async def set_domain(body: DomainUpdate):
-    domain = body.domain.strip()
+    domain = _normalise_domain(body.domain)
     if not domain:
         raise HTTPException(status_code=400, detail="Domain cannot be empty")
     try:
