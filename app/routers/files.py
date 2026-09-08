@@ -10,8 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.config import VIDEOS_DIR, DATA_FILE
 
 logger = logging.getLogger(__name__)
@@ -19,8 +17,6 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 # Browsing and streaming is separate from mutating: a user may be allowed to
 # watch the library without being able to delete half of it.
-CAN_VIEW = [Depends(require(Permission.VIEW_LIBRARY))]
-CAN_MANAGE = [Depends(require(Permission.MANAGE_FILES))]
 
 
 def _safe_path(rel_path: str) -> Path:
@@ -95,7 +91,7 @@ def _compute_disk_usage() -> dict:
     return result
 
 
-@router.get("/disk-usage", dependencies=CAN_VIEW)
+@router.get("/disk-usage")
 async def get_disk_usage():
     return await asyncio.to_thread(_compute_disk_usage)
 
@@ -180,7 +176,7 @@ def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list
     return results
 
 
-@router.get("/search", dependencies=CAN_VIEW)
+@router.get("/search")
 async def search_files(q: str):
     if not q or len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="Query troppo corta (min 2 caratteri)")
@@ -190,7 +186,7 @@ async def search_files(q: str):
     return await asyncio.to_thread(_search_tree, VIDEOS_DIR, VIDEOS_DIR, q.strip().lower(), excluded)
 
 
-@router.get("", dependencies=CAN_VIEW)
+@router.get("")
 async def list_files():
     if not VIDEOS_DIR.exists():
         return []
@@ -198,7 +194,7 @@ async def list_files():
     return await asyncio.to_thread(_build_tree, VIDEOS_DIR, VIDEOS_DIR, excluded)
 
 
-@router.get("/library-tree", dependencies=CAN_VIEW)
+@router.get("/library-tree")
 async def list_library_tree():
     data = _read_data()
     result = []
@@ -215,7 +211,7 @@ async def list_library_tree():
     return result
 
 
-@router.get("/stream/{file_path:path}", dependencies=CAN_VIEW)
+@router.get("/stream/{file_path:path}")
 def stream_file(file_path: str):
     target = _safe_path(file_path)
     return FileResponse(
@@ -225,7 +221,7 @@ def stream_file(file_path: str):
     )
 
 
-@router.get("/download/{file_path:path}", dependencies=CAN_VIEW)
+@router.get("/download/{file_path:path}")
 def download_file(file_path: str):
     target = _safe_path(file_path)
     return FileResponse(
@@ -257,7 +253,7 @@ class RenameRequest(BaseModel):
     new_name: str
 
 
-@router.post("/move", dependencies=CAN_MANAGE)
+@router.post("/move")
 async def move_to_library(body: MoveRequest):
     data = _read_data()
     source = _safe_path(body.path)
@@ -315,7 +311,7 @@ def _delete_sync(target: Path):
         target.unlink()
 
 
-@router.delete("/delete/{file_path:path}", status_code=204, dependencies=CAN_MANAGE)
+@router.delete("/delete/{file_path:path}", status_code=204)
 async def delete_path(file_path: str):
     target = _safe_path(file_path)
     await asyncio.to_thread(_delete_sync, target)
@@ -351,7 +347,7 @@ def _batch_move_sync(paths: list[str], dest_dir_path: str) -> list[dict]:
     return results
 
 
-@router.post("/move-batch", dependencies=CAN_MANAGE)
+@router.post("/move-batch")
 async def batch_move(body: BatchMoveRequest):
     if not body.paths:
         raise HTTPException(status_code=400, detail="Nessun file selezionato")
@@ -374,7 +370,7 @@ def _batch_delete_sync(paths: list[str]) -> list[dict]:
     return results
 
 
-@router.post("/rename", dependencies=CAN_MANAGE)
+@router.post("/rename")
 async def rename_path(body: RenameRequest):
     if not body.new_name or '/' in body.new_name or '\\' in body.new_name or body.new_name in ('.', '..') or '\x00' in body.new_name:
         raise HTTPException(status_code=400, detail="Nome non valido")
@@ -389,7 +385,7 @@ async def rename_path(body: RenameRequest):
     return {"renamed_to": str(dest.relative_to(VIDEOS_DIR.resolve()))}
 
 
-@router.post("/delete-batch", dependencies=CAN_MANAGE)
+@router.post("/delete-batch")
 async def batch_delete(body: BatchDeleteRequest):
     if not body.paths:
         raise HTTPException(status_code=400, detail="Nessun file selezionato")

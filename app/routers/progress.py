@@ -5,8 +5,6 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.jobs import job_manager
 
 logger = logging.getLogger(__name__)
@@ -16,9 +14,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api",
     tags=["progress"],
-    dependencies=[
-        Depends(require(Permission.DOWNLOAD, Permission.MANAGE_REQUESTS, mode="or"))
-    ],
 )
 
 

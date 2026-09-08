@@ -3,30 +3,15 @@ import logging
 import re
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.config import configured_domain
 from app.core.headers import get_headers
 
 logger = logging.getLogger(__name__)
 
-# Posters accompany search results and the request queue, so approvers need
-# them too even when they cannot search.
-router = APIRouter(
-    dependencies=[
-        Depends(
-            require(
-                Permission.REQUEST,
-                Permission.DOWNLOAD,
-                Permission.MANAGE_REQUESTS,
-                mode="or",
-            )
-        )
-    ]
-)
+router = APIRouter()
 
 # Poster filenames come from a third-party API and end up in a URL, so they are
 # constrained to what a filename can actually be.

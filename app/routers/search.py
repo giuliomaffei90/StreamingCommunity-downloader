@@ -3,8 +3,6 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.config import configured_domain
 from app.core.page import search as core_search
 from app.core.film import get_film_languages
@@ -19,7 +17,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/search",
     tags=["search"],
-    dependencies=[Depends(require(Permission.REQUEST, Permission.DOWNLOAD, mode="or"))],
 )
 
 

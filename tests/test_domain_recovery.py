@@ -17,9 +17,7 @@ import json
 import pytest
 
 from app import config
-from app.auth.permissions import ALL_PERMISSIONS
 from app.core import domain_recovery
-from tests.conftest import do_setup, make_user, session_for
 
 
 PAGE = """
@@ -327,20 +325,7 @@ def test_applying_keeps_the_rest_of_data_json(monkeypatch, _configured_domain, p
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-def _csrf(admin):
-    """The admin fixture hands back (user, csrf token)."""
-    return {"X-CSRF-Token": admin[1]}
-
-
-@pytest.fixture
-def admin(client, admin_credentials):
-    do_setup(client, admin_credentials)
-    user = make_user("boss", "jf-boss-id", int(ALL_PERMISSIONS))
-    client.cookies.clear()
-    return user, session_for(client, user.id)
-
-
-def test_the_candidate_endpoint_reports_the_pending_one(client, admin, monkeypatch, public_dns):
+def test_the_candidate_endpoint_reports_the_pending_one(client, monkeypatch, public_dns):
     monkeypatch.setattr(domain_recovery, "get_domain_version", lambda host: "v9")
     domain_recovery._set_pending({"host": "streamingcommunityz.rodeo", "version": "v9",
                                   "found_at": 0})
@@ -349,14 +334,14 @@ def test_the_candidate_endpoint_reports_the_pending_one(client, admin, monkeypat
     assert body["candidate"]["host"] == "streamingcommunityz.rodeo"
 
 
-def test_applying_without_a_candidate_is_a_conflict(client, admin):
+def test_applying_without_a_candidate_is_a_conflict(client):
     res = client.post("/api/domain/candidate/apply",
-                      json={"domain": "streamingcommunityz.rodeo"}, headers=_csrf(admin))
+                      json={"domain": "streamingcommunityz.rodeo"})
     assert res.status_code == 409
 
 
 def test_applying_a_different_host_than_the_one_found_is_refused(
-    client, admin, monkeypatch, _configured_domain, public_dns
+    client, monkeypatch, _configured_domain, public_dns
 ):
     """The body is a confirmation token, not an instruction.
 
@@ -369,38 +354,37 @@ def test_applying_a_different_host_than_the_one_found_is_refused(
                                   "found_at": 0})
 
     res = client.post("/api/domain/candidate/apply",
-                      json={"domain": "attacker.example"}, headers=_csrf(admin))
+                      json={"domain": "attacker.example"})
 
     assert res.status_code == 409
     assert _stored(_configured_domain)["domain"] == "example.test"
 
 
 def test_applying_the_pending_candidate_writes_it(
-    client, admin, monkeypatch, _configured_domain, public_dns
+    client, monkeypatch, _configured_domain, public_dns
 ):
     monkeypatch.setattr(domain_recovery, "get_domain_version", lambda host: "v9")
     domain_recovery._set_pending({"host": "streamingcommunityz.rodeo", "version": "v9",
                                   "found_at": 0})
 
     res = client.post("/api/domain/candidate/apply",
-                      json={"domain": "streamingcommunityz.rodeo"}, headers=_csrf(admin))
+                      json={"domain": "streamingcommunityz.rodeo"})
 
     assert res.status_code == 200
     assert _stored(_configured_domain)["domain"] == "streamingcommunityz.rodeo"
     assert domain_recovery.pending() is None
 
 
-def test_dismissing_clears_the_candidate(client, admin):
+def test_dismissing_clears_the_candidate(client):
     domain_recovery._set_pending({"host": "streamingcommunityz.rodeo", "version": "v9",
                                   "found_at": 0})
-    assert client.post("/api/domain/candidate/dismiss",
-                       headers=_csrf(admin)).status_code == 200
+    assert client.post("/api/domain/candidate/dismiss").status_code == 200
     assert domain_recovery.pending() is None
 
 
-def test_the_recovery_settings_survive_a_settings_save(client, admin):
+def test_the_recovery_settings_survive_a_settings_save(client):
     """Every settings PUT rewrites the whole dict; the domain keys must ride along."""
-    res = client.put("/api/domain/settings", headers=_csrf(admin), json={
+    res = client.put("/api/domain/settings", json={
         "max_concurrent_downloads": 4,
         "max_segment_workers": 8,
         "domain_auto_apply": True,
@@ -409,12 +393,11 @@ def test_the_recovery_settings_survive_a_settings_save(client, admin):
     assert res.status_code == 200
     stored = config.get_settings()
     assert stored["domain_auto_apply"] is True
-    assert stored["series_watch_interval_minutes"] == 240
     assert stored["max_concurrent_downloads"] == 4
 
 
-def test_a_too_frequent_check_interval_is_refused(client, admin):
-    res = client.put("/api/domain/settings", headers=_csrf(admin), json={
+def test_a_too_frequent_check_interval_is_refused(client):
+    res = client.put("/api/domain/settings", json={
         "max_concurrent_downloads": 3,
         "max_segment_workers": 16,
         "domain_check_interval_minutes": 5,

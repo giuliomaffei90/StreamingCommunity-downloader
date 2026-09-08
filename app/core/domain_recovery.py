@@ -340,29 +340,16 @@ def run_check(force: bool = False) -> dict:
 # ── Telling somebody ──────────────────────────────────────────────────────────
 
 def _announce(kind: str, message: str) -> None:
-    """Notify whoever can act on this, and never let that break the check.
+    """Tell the user, and never let that break the check.
 
-    ``app.requests.notify`` is imported here rather than at module scope: it
-    reaches the database and the job manager, and app.core has no business
-    depending on the request system at import time. The event vocabulary still
-    lives in one place — this only picks from it.
+    ``app.notify`` is imported here rather than at module scope only to keep
+    app.core free of a runtime dependency at import time; the notification
+    itself is a subprocess call that cannot raise.
     """
     try:
-        from app.requests import notify as notify_module
+        from app import notify as notifier
 
-        event = {
-            "found": notify_module.SOURCE_DOMAIN_FOUND,
-            "applied": notify_module.SOURCE_DOMAIN_APPLIED,
-        }[kind]
-        notify_module.notify(
-            event,
-            message,
-            notify_module.settings_manager_ids(),
-            title="Dominio sorgente",
-            # The panel itself owns this one when there are no accounts: an open
-            # installation still needs to be told its source moved.
-            panel_wide=True,
-        )
+        notifier.notify("Dominio sorgente", message)
     except Exception:
         logger.exception("Cannot announce the domain change (%s)", kind)
 

@@ -28,29 +28,12 @@ import pytest
 from app.core import paths
 from app.core.ffmpeg_path import ffmpeg_file_arg
 from app.core.paths import looks_like_windows_path, validate_library_path, windows_path_problem
-from tests.conftest import ALL, do_setup, make_user, session_for
 
 
 @pytest.fixture
 def posix_host(monkeypatch):
     """Pretend to be the Linux container the report came from."""
     monkeypatch.setattr(paths, "_host_is_windows", lambda: False)
-    monkeypatch.setattr(paths, "_in_container", lambda: True)
-
-
-@pytest.fixture
-def bare_linux_host(monkeypatch):
-    """A manual install on Linux: still wrong, but for a different reason."""
-    monkeypatch.setattr(paths, "_host_is_windows", lambda: False)
-    monkeypatch.setattr(paths, "_in_container", lambda: False)
-
-
-@pytest.fixture
-def admin(client, admin_credentials):
-    do_setup(client, admin_credentials)
-    user = make_user("boss", "jf-boss-id", ALL)
-    client.cookies.clear()
-    return user, session_for(client, user.id)
 
 
 # ── recognising one ───────────────────────────────────────────────────────────
@@ -76,38 +59,19 @@ def test_a_container_path_is_left_alone(path):
     assert not looks_like_windows_path(path)
 
 
-def test_the_message_names_the_mount_point(posix_host):
-    """The whole point of catching it: saying what to type instead.
+def test_the_message_says_what_to_type_instead(posix_host):
+    """The whole point of catching it: saying what to do instead.
 
-    "Protocol not found" is true and useless, and so is "use a path inside the
-    container" — nobody can guess which one. The shipped compose mounts the
-    media volume at exactly one place, so the advice names it and gives a
-    worked example rather than describing where to go and look.
+    "Protocol not found" is true and useless, and so is "that path is wrong".
+    The advice names a shape the user can actually copy, and points at the
+    button that fills it in for them.
     """
     problem = windows_path_problem(r"N:\Jellyfin\Anime")
 
     assert problem is not None
     assert r"N:\Jellyfin\Anime" in problem
-    assert "docker-compose" in problem
-    assert f"{paths.CONTAINER_VIDEOS_DIR}/Anime" in problem
-
-
-def test_the_mount_point_is_the_one_the_compose_uses(posix_host):
-    """The advice is only useful while it matches the shipped deployment: a
-    path this names but the image does not mount is worse than no advice."""
-    compose = Path("docker-compose.template.yml").read_text(encoding="utf-8")
-
-    assert f":{paths.CONTAINER_VIDEOS_DIR}\n" in compose
-    assert f"VIDEOS_DIR={paths.CONTAINER_VIDEOS_DIR}\n" in compose
-
-
-def test_bare_metal_linux_is_not_told_about_volumes(bare_linux_host):
-    """There is no mapping to point at, so the advice must not invent one."""
-    problem = windows_path_problem(r"N:\Jellyfin\Anime")
-
-    assert problem is not None
-    assert "docker" not in problem.lower()
-    assert "/srv/media/anime" in problem
+    assert "/Users/" in problem
+    assert "Sfoglia" in problem
 
 
 def test_a_windows_host_is_not_told_off(monkeypatch):
@@ -127,7 +91,7 @@ def test_a_valid_path_comes_back_trimmed(posix_host):
     assert validate_library_path("  /media/anime  ") == "/media/anime"
 
 
-# ── which deployment this is ────────────────────────────────────────
+# ── which host this is ──────────────────────────────────────────────
 
 def test_the_real_host_has_the_last_word():
     """No patching at all, on whatever machine the suite is running.
@@ -142,61 +106,25 @@ def test_the_real_host_has_the_last_word():
     assert (problem is None) == (os.name == "nt")
 
 
-def test_dockerenv_is_enough(monkeypatch):
-    monkeypatch.setattr(paths, "_DOCKERENV_FILE", __file__)
-
-    assert paths._in_container()
-
-
-def test_a_cgroup_marker_is_enough(monkeypatch, tmp_path):
-    """Podman and Kubernetes leave no /.dockerenv behind."""
-    cgroup = tmp_path / "cgroup"
-    cgroup.write_text("0::/kubepods/besteffort/pod4f2\n", encoding="utf-8")
-    monkeypatch.setattr(paths, "_DOCKERENV_FILE", str(tmp_path / "absent"))
-    monkeypatch.setattr(paths, "_CGROUP_FILE", str(cgroup))
-
-    assert paths._in_container()
-
-
-def test_an_ordinary_host_is_not_a_container(monkeypatch, tmp_path):
-    """A bare-metal Linux box: no marker file, and /proc/1/cgroup names none.
-
-    A missing file has to read as "not a container" rather than raising —
-    Windows has no /proc at all.
-    """
-    cgroup = tmp_path / "cgroup"
-    cgroup.write_text("0::/user.slice/user-1000.slice\n", encoding="utf-8")
-    monkeypatch.setattr(paths, "_DOCKERENV_FILE", str(tmp_path / "absent"))
-    monkeypatch.setattr(paths, "_CGROUP_FILE", str(cgroup))
-    assert paths._in_container() is False
-
-    monkeypatch.setattr(paths, "_CGROUP_FILE", str(tmp_path / "absent"))
-    assert paths._in_container() is False
-
-
 # ── refused when saved ────────────────────────────────────────────────────────
 
-def test_saving_a_host_path_is_rejected(client, admin, posix_host):
-    _, csrf = admin
-
+def test_saving_a_host_path_is_rejected(client, posix_host):
     response = client.put(
         "/api/domain/libraries",
         json={
             "libraries": [{"type": "anime", "path": r"N:\Jellyfin\Anime"}],
             "excluded_folders": [],
         },
-        headers={"X-CSRF-Token": csrf},
     )
 
     assert response.status_code == 400
-    assert "docker-compose" in response.json()["detail"]
+    assert "percorso Windows" in response.json()["detail"]
 
 
-def test_a_rejected_save_writes_nothing(client, admin, posix_host):
+def test_a_rejected_save_writes_nothing(client, posix_host):
     """One bad library must not leave the good ones half-applied."""
     from app import config
 
-    _, csrf = admin
     client.put(
         "/api/domain/libraries",
         json={
@@ -206,23 +134,19 @@ def test_a_rejected_save_writes_nothing(client, admin, posix_host):
             ],
             "excluded_folders": [],
         },
-        headers={"X-CSRF-Token": csrf},
     )
 
     stored = json.loads(config.DATA_FILE.read_text(encoding="utf-8"))
     assert "libraries" not in stored
 
 
-def test_container_paths_still_save(client, admin, posix_host):
-    _, csrf = admin
-
+def test_posix_paths_still_save(client, posix_host):
     response = client.put(
         "/api/domain/libraries",
         json={
             "libraries": [{"type": "anime", "path": "/media/anime"}],
             "excluded_folders": [],
         },
-        headers={"X-CSRF-Token": csrf},
     )
 
     assert response.status_code == 200
@@ -250,7 +174,7 @@ def test_a_download_to_a_host_path_fails_before_fetching_anything(posix_host, mo
             output_filename=r"N:\Jellyfin\Anime\Show (2021)\Show S01E01.mp4",
         )
 
-    assert "docker-compose" in str(excinfo.value)
+    assert "percorso Windows" in str(excinfo.value)
 
 
 # ── and the colon itself ──────────────────────────────────────────────────────

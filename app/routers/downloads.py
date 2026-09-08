@@ -3,13 +3,11 @@ import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request as HttpRequest
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import downloads_notify
-from app.auth.deps import OPEN_MODE_USER, current_user, require
-from app.auth.permissions import Permission
 from app.config import configured_domain
 from app.jobs import job_manager
 
@@ -22,13 +20,9 @@ MAX_BATCH_JOBS = 500
 
 # Starting a download directly is the privilege this whole feature exists to
 # gate: without it a user goes through the request queue instead.
-CAN_DOWNLOAD = [Depends(require(Permission.DOWNLOAD))]
 
 # Job control is also reachable by approvers, who must be able to stop a
 # download they approved without being allowed to start one themselves.
-CAN_CONTROL_JOBS = [
-    Depends(require(Permission.DOWNLOAD, Permission.MANAGE_REQUESTS, mode="or"))
-]
 
 
 def _domain() -> str:
@@ -147,12 +141,6 @@ class AnimeScheduleRequest(AnimeDownloadRequest):
 # first job exists is what lets the notification layer say "season finished"
 # instead of guessing with a timer.
 
-def _acting_user_id(http_request: HttpRequest) -> int | None:
-    """The in-app recipient. None in open mode, which has no account to notify."""
-    user = current_user(http_request)
-    return None if user is OPEN_MODE_USER else user.id
-
-
 def _season_episodes(tv_id: int, slug: str, season: int, domain: str, version: str, token: str):
     from app.core.tv import get_info_season
 
@@ -195,15 +183,14 @@ def _check_size(count: int):
         )
 
 
-def _run_batch(kind: str, label: str, user_id: int | None, submits: list) -> dict:
+def _run_batch(kind: str, label: str, submits: list) -> dict:
     """Register the batch, then submit. Never the other way round.
 
     A job can fail in the instant it is created, and a result arriving before
     its batch exists would be counted against nothing.
     """
     batch_id = uuid.uuid4().hex
-    downloads_notify.register(batch_id, kind=kind, label=label,
-                              expected=len(submits), user_id=user_id)
+    downloads_notify.register(batch_id, kind=kind, label=label, expected=len(submits))
     job_ids = []
     for index, submit in enumerate(submits):
         try:
@@ -217,7 +204,7 @@ def _run_batch(kind: str, label: str, user_id: int | None, submits: list) -> dic
     return {"batch_id": batch_id, "job_ids": job_ids, "count": len(job_ids)}
 
 
-def _episode_submits(body, tv_id, slug, tv_name, season, domain, version, token, user_id, kind, label):
+def _episode_submits(body, tv_id, slug, tv_name, season, domain, version, token, kind, label):
     episodes = _season_episodes(tv_id, slug, season, domain, version, token)
 
     def make(index):
@@ -226,7 +213,7 @@ def _episode_submits(body, tv_id, slug, tv_name, season, domain, version, token,
                 year=body.year,
                 audio_languages=body.audio_languages,
                 subtitle_languages=body.subtitle_languages,
-                user_id=user_id, batch_id=batch_id, batch_kind=kind, batch_label=label,
+                batch_id=batch_id, batch_kind=kind, batch_label=label,
                 tmdb_id=_tmdb_id("tv", tv_id),
             )
             if body.scheduled_at:
@@ -242,25 +229,23 @@ def _episode_submits(body, tv_id, slug, tv_name, season, domain, version, token,
     return [make(i) for i in range(len(episodes))]
 
 
-@router.post("/season", status_code=202, dependencies=CAN_DOWNLOAD)
-async def download_season(body: SeasonDownloadRequest, http_request: HttpRequest):
-    user_id = _acting_user_id(http_request)
+@router.post("/season", status_code=202)
+async def download_season(body: SeasonDownloadRequest):
     label = f"{body.tv_name} — Stagione {body.season}"
 
     def work():
         domain, version, token = _tv_context(body.tv_id)
         submits = _episode_submits(body, body.tv_id, body.slug, body.tv_name, body.season,
-                                   domain, version, token, user_id, "season", label)
+                                   domain, version, token, "season", label)
         _check_size(len(submits))
-        return _run_batch("season", label, user_id, submits)
+        return _run_batch("season", label, submits)
 
     result = await asyncio.to_thread(_enumerate, work)
     return {**result, "status": "scheduled" if body.scheduled_at else "queued"}
 
 
-@router.post("/series", status_code=202, dependencies=CAN_DOWNLOAD)
-async def download_series(body: SeriesDownloadRequest, http_request: HttpRequest):
-    user_id = _acting_user_id(http_request)
+@router.post("/series", status_code=202)
+async def download_series(body: SeriesDownloadRequest):
 
     def work():
         from app.core.tv import get_info_tv
@@ -272,20 +257,19 @@ async def download_series(body: SeriesDownloadRequest, http_request: HttpRequest
         for season in range(1, seasons + 1):
             try:
                 submits += _episode_submits(body, body.tv_id, body.slug, body.tv_name, season,
-                                            domain, version, token, user_id, "series", body.tv_name)
+                                            domain, version, token, "series", body.tv_name)
             except Exception:
                 # One unavailable season must not sink the whole series.
                 logger.exception("Series %s: season %s could not be listed", body.tv_id, season)
         _check_size(len(submits))
-        return _run_batch("series", body.tv_name, user_id, submits)
+        return _run_batch("series", body.tv_name, submits)
 
     result = await asyncio.to_thread(_enumerate, work)
     return {**result, "status": "scheduled" if body.scheduled_at else "queued"}
 
 
-@router.post("/anime-all", status_code=202, dependencies=CAN_DOWNLOAD)
-async def download_anime_all(body: AnimeAllDownloadRequest, http_request: HttpRequest):
-    user_id = _acting_user_id(http_request)
+@router.post("/anime-all", status_code=202)
+async def download_anime_all(body: AnimeAllDownloadRequest):
 
     def work():
         from app.core.animeunity import get_episodes
@@ -299,7 +283,7 @@ async def download_anime_all(body: AnimeAllDownloadRequest, http_request: HttpRe
                     anime_type=body.anime_type, year=body.year,
                     audio_languages=body.audio_languages,
                     subtitle_languages=body.subtitle_languages,
-                    user_id=user_id, batch_id=batch_id, batch_kind="anime_all",
+                    batch_id=batch_id, batch_kind="anime_all",
                     batch_label=body.anime_name,
                 )
                 if body.scheduled_at:
@@ -311,7 +295,7 @@ async def download_anime_all(body: AnimeAllDownloadRequest, http_request: HttpRe
                 )
             return submit
 
-        return _run_batch("anime_all", body.anime_name, user_id,
+        return _run_batch("anime_all", body.anime_name,
                           [make(ep) for ep in episodes])
 
     result = await asyncio.to_thread(_enumerate, work)
@@ -320,20 +304,19 @@ async def download_anime_all(body: AnimeAllDownloadRequest, http_request: HttpRe
 
 # ── Immediate downloads ────────────────────────────────────────────────────────
 
-@router.post("/film", status_code=202, dependencies=CAN_DOWNLOAD)
-def download_film(body: FilmDownloadRequest, http_request: HttpRequest):
+@router.post("/film", status_code=202)
+def download_film(body: FilmDownloadRequest):
     job_id = job_manager.submit_film(
         body.id, body.title, _domain(), year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
         tmdb_id=_tmdb_id("movie", body.id),
     )
     return {"job_id": job_id, "status": "queued"}
 
 
-@router.post("/episode", status_code=202, dependencies=CAN_DOWNLOAD)
-def download_episode(body: EpisodeDownloadRequest, http_request: HttpRequest):
+@router.post("/episode", status_code=202)
+def download_episode(body: EpisodeDownloadRequest):
     if body.ep_index < 0 or body.ep_index >= len(body.eps):
         raise HTTPException(status_code=400, detail="ep_index out of range")
     job_id = job_manager.submit_episode(
@@ -342,38 +325,35 @@ def download_episode(body: EpisodeDownloadRequest, http_request: HttpRequest):
         year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
         tmdb_id=_tmdb_id("tv", body.tv_id),
     )
     return {"job_id": job_id, "status": "queued"}
 
 
-@router.post("/anime", status_code=202, dependencies=CAN_DOWNLOAD)
-def download_anime(body: AnimeDownloadRequest, http_request: HttpRequest):
+@router.post("/anime", status_code=202)
+def download_anime(body: AnimeDownloadRequest):
     job_id = job_manager.submit_anime_episode(
         body.anime_id, body.episode.model_dump(), body.anime_name, body.anime_type, year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
     )
     return {"job_id": job_id, "status": "queued"}
 
 
 # ── Scheduled downloads ────────────────────────────────────────────────────────
 
-@router.post("/schedule/film", status_code=202, dependencies=CAN_DOWNLOAD)
-def schedule_film(body: FilmScheduleRequest, http_request: HttpRequest):
+@router.post("/schedule/film", status_code=202)
+def schedule_film(body: FilmScheduleRequest):
     job_id = job_manager.schedule_film(
         body.id, body.title, _domain(), body.scheduled_at, year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
     )
     return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
 
 
-@router.post("/schedule/episode", status_code=202, dependencies=CAN_DOWNLOAD)
-def schedule_episode(body: EpisodeScheduleRequest, http_request: HttpRequest):
+@router.post("/schedule/episode", status_code=202)
+def schedule_episode(body: EpisodeScheduleRequest):
     if body.ep_index < 0 or body.ep_index >= len(body.eps):
         raise HTTPException(status_code=400, detail="ep_index out of range")
     job_id = job_manager.schedule_episode(
@@ -382,33 +362,31 @@ def schedule_episode(body: EpisodeScheduleRequest, http_request: HttpRequest):
         body.scheduled_at, year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
     )
     return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
 
 
-@router.post("/schedule/anime", status_code=202, dependencies=CAN_DOWNLOAD)
-def schedule_anime(body: AnimeScheduleRequest, http_request: HttpRequest):
+@router.post("/schedule/anime", status_code=202)
+def schedule_anime(body: AnimeScheduleRequest):
     job_id = job_manager.schedule_anime_episode(
         body.anime_id, body.episode.model_dump(), body.anime_name, body.scheduled_at,
         anime_type=body.anime_type, year=body.year,
         audio_languages=body.audio_languages,
         subtitle_languages=body.subtitle_languages,
-        user_id=_acting_user_id(http_request),
     )
     return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
 
 
 # ── Job management ─────────────────────────────────────────────────────────────
 
-@router.post("/{job_id}/fire", status_code=200, dependencies=CAN_CONTROL_JOBS)
+@router.post("/{job_id}/fire", status_code=200)
 def fire_now(job_id: str):
     if job_manager.fire_now(job_id):
         return {"job_id": job_id, "status": "queued"}
     raise HTTPException(status_code=404, detail="Job non trovato o non in stato programmato")
 
 
-@router.post("/{job_id}/retry", status_code=200, dependencies=CAN_DOWNLOAD)
+@router.post("/{job_id}/retry", status_code=200)
 def retry(job_id: str):
     """Run a failed or cancelled download again, without searching for it anew."""
     if job_manager.retry(job_id):
@@ -416,7 +394,7 @@ def retry(job_id: str):
     raise HTTPException(status_code=404, detail="Job non trovato o non ripetibile")
 
 
-@router.delete("/{job_id}", status_code=200, dependencies=CAN_CONTROL_JOBS)
+@router.delete("/{job_id}", status_code=200)
 def cancel_or_dismiss(job_id: str):
     """Cancel a running/queued/scheduled job, or dismiss a finished one (also cleans schedule store)."""
     if job_manager.dismiss(job_id):

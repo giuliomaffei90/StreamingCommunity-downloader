@@ -7,8 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app import config
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.config import get_settings, save_settings
 from app.core import domain_recovery, naming
 from app.core.paths import validate_library_path
@@ -17,13 +15,9 @@ from app.core.page import get_domain_version
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/domain", tags=["domain"])
 
-CAN_MANAGE = [Depends(require(Permission.MANAGE_SETTINGS))]
 
 # Reading the current domain is not a settings operation: every signed-in user
 # needs it to build poster URLs. Anyone who can search can already see it.
-CAN_READ_DOMAIN = [
-    Depends(require(Permission.REQUEST, Permission.DOWNLOAD, Permission.MANAGE_SETTINGS, mode="or"))
-]
 
 
 def _read_data() -> dict:
@@ -44,7 +38,7 @@ class DomainUpdate(BaseModel):
     domain: str
 
 
-@router.get("", dependencies=CAN_READ_DOMAIN)
+@router.get("")
 async def get_domain():
     data = _read_data()
     domain = data.get("domain", "")
@@ -67,7 +61,7 @@ async def get_domain():
     return {"domain": domain, "valid": valid, "version": version}
 
 
-@router.get("/candidate", dependencies=CAN_READ_DOMAIN)
+@router.get("/candidate")
 def get_domain_candidate():
     """The replacement domain waiting to be confirmed, if there is one.
 
@@ -78,12 +72,12 @@ def get_domain_candidate():
     return {"candidate": domain_recovery.pending()}
 
 
-@router.post("/check", dependencies=CAN_MANAGE)
+@router.post("/check")
 async def check_domain_now():
     return await asyncio.to_thread(domain_recovery.run_check, True)
 
 
-@router.post("/candidate/apply", dependencies=CAN_MANAGE)
+@router.post("/candidate/apply")
 async def apply_domain_candidate(body: DomainUpdate):
     """Adopt the pending candidate.
 
@@ -108,7 +102,7 @@ async def apply_domain_candidate(body: DomainUpdate):
     return {"domain": candidate["host"], "version": version, "valid": True}
 
 
-@router.post("/candidate/dismiss", dependencies=CAN_MANAGE)
+@router.post("/candidate/dismiss")
 def dismiss_domain_candidate():
     domain_recovery.clear_pending()
     return {"ok": True}
@@ -124,7 +118,7 @@ class LibrariesUpdate(BaseModel):
     excluded_folders: list[str]
 
 
-@router.get("/libraries", dependencies=CAN_MANAGE)
+@router.get("/libraries")
 def get_libraries():
     data = _read_data()
     return {
@@ -133,7 +127,7 @@ def get_libraries():
     }
 
 
-@router.put("/libraries", dependencies=CAN_MANAGE)
+@router.put("/libraries")
 def set_libraries(body: LibrariesUpdate):
     # Deduplicate: last entry per type wins
     seen: dict[str, dict] = {}
@@ -189,7 +183,7 @@ class NamingPreviewRequest(BaseModel):
     templates: dict[str, str]
 
 
-@router.post("/settings/naming-preview", dependencies=CAN_MANAGE)
+@router.post("/settings/naming-preview")
 def preview_naming(body: NamingPreviewRequest):
     """What each template would produce, rendered by the real engine.
 
@@ -209,13 +203,13 @@ def preview_naming(body: NamingPreviewRequest):
     return {"slots": result, "tokens": {s: list(t) for s, t in naming.SLOT_TOKENS.items()}}
 
 
-@router.get("/settings/naming-defaults", dependencies=CAN_MANAGE)
+@router.get("/settings/naming-defaults")
 def naming_defaults():
     return {"templates": dict(naming.DEFAULT_TEMPLATES),
             "tokens": {s: list(t) for s, t in naming.SLOT_TOKENS.items()}}
 
 
-@router.get("/settings", dependencies=CAN_MANAGE)
+@router.get("/settings")
 def get_app_settings():
     # naming_templates is always returned complete, defaults filled in: the UI
     # renders nine fields and a partially stored dict would leave some blank,
@@ -236,7 +230,7 @@ _SETTING_RANGES = (
 )
 
 
-@router.put("/settings", dependencies=CAN_MANAGE)
+@router.put("/settings")
 def set_app_settings(body: SettingsUpdate):
     # save_settings() replaces the whole `settings` dict rather than merging, so
     # every key the caller did not send has to be carried over here or it is
@@ -259,7 +253,7 @@ def set_app_settings(body: SettingsUpdate):
     return new_settings
 
 
-@router.put("", dependencies=CAN_MANAGE)
+@router.put("")
 async def set_domain(body: DomainUpdate):
     domain = body.domain.strip()
     if not domain:

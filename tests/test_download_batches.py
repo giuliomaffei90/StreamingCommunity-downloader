@@ -7,8 +7,6 @@ say when a season was finished.
 import pytest
 
 from app import downloads_notify
-from app.auth.permissions import ALL_PERMISSIONS
-from tests.conftest import do_setup, make_user, session_for
 
 
 @pytest.fixture(autouse=True)
@@ -19,16 +17,11 @@ def _clean_batches():
 
 
 @pytest.fixture
-def panel(client, admin_credentials, source, stub_jobs, monkeypatch):
+def panel(client, source, stub_jobs, monkeypatch):
     """Configured panel; the fake source publishes 3 episodes across 1 season."""
-    do_setup(client, admin_credentials)
     from app.core import tv
 
     monkeypatch.setattr(tv, "get_info_tv", lambda *a, **k: 1)
-    boss = make_user("boss", "jf-boss-id", int(ALL_PERMISSIONS))
-    client.cookies.clear()
-    source.csrf = session_for(client, boss.id)
-    source.user = boss
     return source
 
 
@@ -38,7 +31,7 @@ ANIME_BODY = {"anime_id": "55", "anime_name": "Test Anime"}
 
 
 def _post(client, panel, path, body):
-    return client.post(path, json=body, headers={"X-CSRF-Token": panel.csrf})
+    return client.post(path, json=body)
 
 
 def test_a_season_creates_one_job_per_episode_sharing_a_batch(client, panel, stub_jobs):
@@ -131,12 +124,6 @@ def test_a_scheduled_batch_creates_scheduled_jobs(client, panel, stub_jobs, monk
     assert response.json()["status"] == "scheduled"
     assert len(scheduled) == 3
     assert {k["batch_kind"] for k in scheduled} == {"season"}
-
-
-def test_the_batch_carries_the_acting_user(client, panel, stub_jobs):
-    _post(client, panel, "/api/download/season", SEASON_BODY)
-
-    assert {kwargs["user_id"] for _, _, kwargs in stub_jobs} == {panel.user.id}
 
 
 def test_a_batch_is_registered_before_any_job_is_submitted(client, panel, monkeypatch):

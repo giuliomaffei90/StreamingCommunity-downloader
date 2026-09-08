@@ -51,9 +51,6 @@ class DownloadJob:
     batch_kind: Optional[str] = None    # "season" | "series" | "anime_all"
     batch_label: Optional[str] = None   # computed once at submit, e.g. "Serie — Stagione 2"
 
-    # Who asked for it. None in open mode, where there is no account to notify.
-    user_id: Optional[int] = None
-
     # Kept as separate fields rather than parsed back out of `title`, which is
     # already a composed string ("Nome Serie S02E05") and would misparse the
     # first time a title itself contains something like S01.
@@ -124,8 +121,6 @@ class JobManager:
             "output_path": job.output_path,
             "progress": job.progress,
             "phases": job.phases,
-            # user_id is deliberately absent: the jobs list is readable by anyone
-            # who can download, and the field has no use in the interface.
             "batch_id": job.batch_id,
             "batch_kind": job.batch_kind,
             "season": job.season,
@@ -422,7 +417,7 @@ class JobManager:
                   schedule_id: Optional[str] = None, phases: list = None,
                   **meta) -> DownloadJob:
         """Build a job. ``meta`` carries the notification fields declared on
-        DownloadJob (batch_id, user_id, season, …); unknown keys raise, which is
+        DownloadJob (batch_id, season, …); unknown keys raise, which is
         the point — a typo must not silently vanish."""
         now = datetime.now(timezone.utc)
         sa = scheduled_at.replace(tzinfo=timezone.utc) if scheduled_at and scheduled_at.tzinfo is None else scheduled_at
@@ -448,13 +443,11 @@ class JobManager:
                     audio_languages: list[str] = None,
                     subtitle_languages: list[str] = None,
                     strict_audio: bool = False,
-                    user_id: int = None,
                     tmdb_id: int = None) -> str:
         from app.core.film import download_film
 
         job = self._make_job(title, "film", schedule_id=schedule_id,
-                             phases=self._compute_phases(audio_languages or ["ita"]),
-                             user_id=user_id, media_label=title, year=year)
+                             phases=self._compute_phases(audio_languages or ["ita"]), media_label=title, year=year)
         return self._submit_job(
             job, download_film,
             id_film, title, domain,
@@ -474,8 +467,7 @@ class JobManager:
                        schedule_id: str = None,
                        audio_languages: list[str] = None,
                        subtitle_languages: list[str] = None,
-                       strict_audio: bool = False,
-                       user_id: int = None, batch_id: str = None,
+                       strict_audio: bool = False, batch_id: str = None,
                        batch_kind: str = None, batch_label: str = None,
                        tmdb_id: int = None) -> str:
         from app.core.tv import download_episode, fmt_ep
@@ -483,8 +475,7 @@ class JobManager:
         ep = eps[ep_index]
         title = f"{tv_name} S{season:02d}E{fmt_ep(ep['n'])}"
         job = self._make_job(title, "episode", schedule_id=schedule_id,
-                             phases=self._compute_phases(audio_languages or ["ita"]),
-                             user_id=user_id, batch_id=batch_id, batch_kind=batch_kind,
+                             phases=self._compute_phases(audio_languages or ["ita"]), batch_id=batch_id, batch_kind=batch_kind,
                              batch_label=batch_label, media_label=tv_name, year=year,
                              season=season, episode_number=str(ep["n"]))
         return self._submit_job(
@@ -509,16 +500,14 @@ class JobManager:
                              schedule_id: str = None,
                              audio_languages: list[str] = None,
                              subtitle_languages: list[str] = None,
-                             strict_audio: bool = False,
-                             user_id: int = None, batch_id: str = None,
+                             strict_audio: bool = False, batch_id: str = None,
                              batch_kind: str = None, batch_label: str = None) -> str:
         from app.core.animeunity import download_anime_episode
 
         ep_num = episode.get("number", "?")
         title = f"{anime_name} E{ep_num}"
         job = self._make_job(title, "anime", schedule_id=schedule_id,
-                             phases=self._compute_phases(audio_languages or ["ita"]),
-                             user_id=user_id, batch_id=batch_id, batch_kind=batch_kind,
+                             phases=self._compute_phases(audio_languages or ["ita"]), batch_id=batch_id, batch_kind=batch_kind,
                              batch_label=batch_label, media_label=anime_name, year=year,
                              episode_number=str(ep_num))
         return self._submit_job(
@@ -540,7 +529,6 @@ class JobManager:
                       scheduled_at: datetime, year: str = None,
                       audio_languages: list[str] = None,
                       subtitle_languages: list[str] = None,
-                      user_id: int = None,
                       tmdb_id: int = None) -> str:
         params = {
             "id": id_film, "title": title, "domain": domain, "year": year,
@@ -550,15 +538,13 @@ class JobManager:
             # survive until the job fires.
             "tmdb_id": tmdb_id,
         }
-        return self._add_schedule("film", scheduled_at, params, title,
-                                  user_id=user_id, media_label=title, year=year)
+        return self._add_schedule("film", scheduled_at, params, title, media_label=title, year=year)
 
     def schedule_episode(self, tv_id: int, eps: list[dict], ep_index: int, domain: str,
                          token: str, tv_name: str, season: int,
                          scheduled_at: datetime, year: str = None,
                          audio_languages: list[str] = None,
-                         subtitle_languages: list[str] = None,
-                         user_id: int = None, batch_id: str = None,
+                         subtitle_languages: list[str] = None, batch_id: str = None,
                          batch_kind: str = None, batch_label: str = None,
                          tmdb_id: int = None) -> str:
         from app.core.tv import fmt_ep
@@ -572,8 +558,7 @@ class JobManager:
             "subtitle_languages": subtitle_languages or ["ita", "eng"],
             "tmdb_id": tmdb_id,
         }
-        return self._add_schedule("episode", scheduled_at, params, title,
-                                  user_id=user_id, batch_id=batch_id, batch_kind=batch_kind,
+        return self._add_schedule("episode", scheduled_at, params, title, batch_id=batch_id, batch_kind=batch_kind,
                                   batch_label=batch_label, media_label=tv_name, year=year,
                                   season=season, episode_number=str(ep["n"]))
 
@@ -581,8 +566,7 @@ class JobManager:
                                scheduled_at: datetime, anime_type: str = "tv",
                                year: str = None,
                                audio_languages: list[str] = None,
-                               subtitle_languages: list[str] = None,
-                               user_id: int = None, batch_id: str = None,
+                               subtitle_languages: list[str] = None, batch_id: str = None,
                                batch_kind: str = None, batch_label: str = None) -> str:
         ep_num = episode.get("number", "?")
         title = f"{anime_name} E{ep_num}"
@@ -592,8 +576,7 @@ class JobManager:
             "audio_languages": audio_languages or ["ita"],
             "subtitle_languages": subtitle_languages or ["ita", "eng"],
         }
-        return self._add_schedule("anime", scheduled_at, params, title,
-                                  user_id=user_id, batch_id=batch_id, batch_kind=batch_kind,
+        return self._add_schedule("anime", scheduled_at, params, title, batch_id=batch_id, batch_kind=batch_kind,
                                   batch_label=batch_label, media_label=anime_name, year=year,
                                   episode_number=str(ep_num))
 

@@ -3,8 +3,6 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.config import configured_domain
 from app.core.tv import get_info_tv, get_info_season, get_token, get_tv_languages
 
@@ -14,7 +12,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/tv",
     tags=["tv"],
-    dependencies=[Depends(require(Permission.REQUEST, Permission.DOWNLOAD, mode="or"))],
 )
 
 

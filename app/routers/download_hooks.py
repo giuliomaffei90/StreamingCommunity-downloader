@@ -17,13 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app import downloads_hooks
-from app.auth.deps import require
-from app.auth.permissions import Permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/download-hooks", tags=["download-hooks"])
 
-CAN_MANAGE = [Depends(require(Permission.MANAGE_SETTINGS))]
 
 
 def _validate_events(events: list[str] | None) -> list[str] | None:
@@ -111,30 +108,12 @@ def _public(hook: dict) -> dict:
     return {**hook, "url_masked": f"{parsed.scheme}://{parsed.hostname or '…'}/…{tail}"}
 
 
-def _jellyfin_connected() -> bool:
-    """Whether the library refresh has credentials to use.
-
-    Read from jf_setting rather than inferred from the auth mode: an
-    installation that skipped the login wizard and connected Jellyfin later has
-    both, and asking the auth status would report it as unconnected.
-    """
-    from app.auth import models as auth_models
-
-    return bool(
-        (auth_models.get_setting(auth_models.SETTING_JELLYFIN_URL) or "").strip()
-        and (auth_models.get_setting(auth_models.SETTING_JELLYFIN_API_KEY) or "").strip()
-    )
-
-
-@router.get("", dependencies=CAN_MANAGE)
+@router.get("")
 def list_hooks():
-    return {
-        "hooks": [_public(h) for h in downloads_hooks.list_hooks()],
-        "jellyfin_connected": _jellyfin_connected(),
-    }
+    return {"hooks": [_public(h) for h in downloads_hooks.list_hooks()]}
 
 
-@router.post("", dependencies=CAN_MANAGE)
+@router.post("")
 def create_hook(body: HookCreate):
     hook = downloads_hooks.create_hook(
         name=body.name.strip() or "Hook",
@@ -147,7 +126,7 @@ def create_hook(body: HookCreate):
     return {"hook": _public(hook)}
 
 
-@router.patch("/{hook_id}", dependencies=CAN_MANAGE)
+@router.patch("/{hook_id}")
 def update_hook(hook_id: int, body: HookUpdate):
     if downloads_hooks.get_hook(hook_id) is None:
         raise HTTPException(status_code=404, detail="Hook non trovato")
@@ -155,7 +134,7 @@ def update_hook(hook_id: int, body: HookUpdate):
     return {"hook": _public(hook)}
 
 
-@router.delete("/{hook_id}", dependencies=CAN_MANAGE)
+@router.delete("/{hook_id}")
 def delete_hook(hook_id: int):
     if downloads_hooks.get_hook(hook_id) is None:
         raise HTTPException(status_code=404, detail="Hook non trovato")
@@ -163,7 +142,7 @@ def delete_hook(hook_id: int):
     return {"ok": True}
 
 
-@router.post("/{hook_id}/test", dependencies=CAN_MANAGE)
+@router.post("/{hook_id}/test")
 async def test_hook(hook_id: int):
     """Fire the hook with a made-up job. Reports a status code, never a body."""
     hook = downloads_hooks.get_hook(hook_id)

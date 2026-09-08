@@ -9,18 +9,15 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.auth.deps import require
-from app.auth.permissions import Permission
 from app.core import metadata
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
 
 # The same gate as search: this is the detail view of a search result.
-CAN_READ = [Depends(require(Permission.REQUEST, Permission.DOWNLOAD, mode="or"))]
 
 
-@router.get("/{media_type}/{title_id}", dependencies=CAN_READ)
+@router.get("/{media_type}/{title_id}")
 async def get_title_metadata(
     media_type: str = Path(pattern="^(movie|tv)$"),
     title_id: str = Path(min_length=1, max_length=64),

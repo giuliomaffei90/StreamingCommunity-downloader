@@ -1,35 +1,33 @@
 """Telling something else that a download finished.
 
-Two things, deliberately kept apart:
+A URL, a method, optional headers and a body template, fired when a download
+reaches a terminal state. That is all this is now: the Jellyfin library refresh
+that used to sit beside it went with Jellyfin itself.
 
-**The Jellyfin refresh.** A one-switch version of the only reason most people
-would want a hook at all: the file is in the library, and Jellyfin does not know
-until its next scan. It uses the URL and API key already stored for
-authentication, so there is nothing to configure.
+There is no shell hook and there will not be one. The settings are open to
+whoever has the window — there is no login in front of them — so a command
+column here would turn a settings form into a shell.
 
-**Webhooks.** A URL, a method, optional headers and a body template, fired when
-a download reaches a terminal state.
+A webhook is still an outbound request to an address the user chose, and
+pointing it at ``192.168.x`` is the *point*. The mitigation is therefore not to
+restrict the address but to make the request blind: the response body is never
+returned to the caller and never logged, only its status code.
 
-There is no shell hook and there will not be one. Open mode grants
-MANAGE_SETTINGS to every anonymous visitor (``app/auth/deps.py``), so a command
-column here would be remote code execution for anyone who can reach the panel.
-
-A webhook is still an outbound request to an address a settings manager chose,
-and pointing it at ``192.168.x`` is the *point* — that is where Jellyfin lives.
-The mitigation is therefore not to restrict the address but to make the request
-blind: the response body is never returned to the caller and never logged, only
-its status code. Whoever configures a hook learns whether it worked, not what
-the other end said.
+Hooks live in ``data.json`` beside the rest of the settings. They used to be a
+SQLite table, back when the same database held users, sessions and API keys;
+with those gone, a whole database engine for one list of webhooks is a
+dependency that earns nothing.
 """
 
 import json
 import logging
 import threading
+from datetime import datetime, timezone
 
 import requests
 
-from app import db
-from app.requests import models as request_models
+from app import notify as notifier
+from app.config import read_data, update_data
 
 logger = logging.getLogger(__name__)
 
@@ -44,74 +42,74 @@ _TIMEOUT = 10
 _listener_registered = False
 _listener_lock = threading.Lock()
 
+_KEY = "download_hooks"
 
-# ── CRUD ──────────────────────────────────────────────────────────────────────
 
-def _row_to_hook(row) -> dict:
-    hook = dict(row)
-    hook["enabled"] = bool(hook["enabled"])
-    hook["events"] = json.loads(hook["events"])
-    hook["headers"] = json.loads(hook["headers"])
-    return hook
+# ── Storage ───────────────────────────────────────────────────────────────────
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def list_hooks() -> list[dict]:
-    return [_row_to_hook(r) for r in db.query("SELECT * FROM jf_download_hook ORDER BY id")]
+    hooks = read_data().get(_KEY) or []
+    return sorted(hooks, key=lambda h: h.get("id", 0))
+
+
+def _save(hooks: list[dict]):
+    # ponytail: read-modify-write outside the lock update_data holds, so two
+    # simultaneous hook edits could lose one. One person in one window cannot
+    # produce that; if hooks ever gain a second writer, move the whole list
+    # operation inside config's lock.
+    update_data({_KEY: hooks})
 
 
 def get_hook(hook_id: int) -> dict | None:
-    row = db.query_one("SELECT * FROM jf_download_hook WHERE id = ?", (hook_id,))
-    return _row_to_hook(row) if row else None
+    return next((h for h in list_hooks() if h["id"] == hook_id), None)
 
 
 def create_hook(*, name: str, url: str, method: str = "POST", headers: dict | None = None,
                 body_template: str = "", events: list[str] | None = None,
                 enabled: bool = True) -> dict:
-    timestamp = request_models.now_iso()
-    cursor = db.execute(
-        "INSERT INTO jf_download_hook"
-        "(name, url, method, headers, body_template, events, enabled, created_at, updated_at) "
-        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, url, method, json.dumps(headers or {}), body_template,
-         json.dumps(events or []), int(enabled), timestamp, timestamp),
-    )
-    return get_hook(cursor.lastrowid)
+    hooks = list_hooks()
+    timestamp = _now_iso()
+    hook = {
+        "id": max((h["id"] for h in hooks), default=0) + 1,
+        "name": name,
+        "url": url,
+        "method": method,
+        "headers": headers or {},
+        "body_template": body_template,
+        "events": events or [],
+        "enabled": bool(enabled),
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    _save(hooks + [hook])
+    return hook
 
 
 def update_hook(hook_id: int, **fields) -> dict | None:
-    columns, values = [], []
+    hooks = list_hooks()
+    hook = next((h for h in hooks if h["id"] == hook_id), None)
+    if hook is None:
+        return None
     for key in ("name", "url", "method", "headers", "body_template", "events", "enabled"):
-        if key not in fields or fields[key] is None:
-            continue
-        value = fields[key]
-        if key in ("headers", "events"):
-            value = json.dumps(value)
-        elif key == "enabled":
-            value = int(value)
-        columns.append(f"{key} = ?")
-        values.append(value)
-    if not columns:
-        return get_hook(hook_id)
-    columns.append("updated_at = ?")
-    values.extend([request_models.now_iso(), hook_id])
-    db.execute(f"UPDATE jf_download_hook SET {', '.join(columns)} WHERE id = ?", tuple(values))
-    return get_hook(hook_id)
+        if fields.get(key) is not None:
+            hook[key] = bool(fields[key]) if key == "enabled" else fields[key]
+    hook["updated_at"] = _now_iso()
+    _save(hooks)
+    return hook
 
 
 def delete_hook(hook_id: int):
-    db.execute("DELETE FROM jf_download_hook WHERE id = ?", (hook_id,))
+    _save([h for h in list_hooks() if h["id"] != hook_id])
 
 
 def list_enabled_for_event(event: str) -> list[dict]:
-    """Enabled hooks subscribed to this event. An empty filter means all events.
-
-    The same rule the notification channels use, and the same reason the filter
-    runs in Python: matching inside a JSON column would tie the panel to the
-    SQLite JSON1 extension being compiled in.
-    """
-    hooks = [_row_to_hook(r) for r in
-             db.query("SELECT * FROM jf_download_hook WHERE enabled = 1 ORDER BY id")]
-    return [h for h in hooks if not h["events"] or event in h["events"]]
+    """Enabled hooks subscribed to this event. An empty filter means all events."""
+    return [h for h in list_hooks()
+            if h.get("enabled") and (not h.get("events") or event in h["events"])]
 
 
 # ── Payload ───────────────────────────────────────────────────────────────────
@@ -183,48 +181,12 @@ def fire(hook: dict, tokens: dict) -> tuple[bool, int | None]:
     return response.ok, response.status_code
 
 
-def refresh_jellyfin_library() -> tuple[bool, int | None]:
-    """Ask Jellyfin to scan, using the credentials already stored for login."""
-    from app.auth import models as auth_models
-
-    url = (auth_models.get_setting(auth_models.SETTING_JELLYFIN_URL) or "").strip()
-    api_key = (auth_models.get_setting(auth_models.SETTING_JELLYFIN_API_KEY) or "").strip()
-    if not url or not api_key:
-        logger.info("Library refresh skipped: Jellyfin is not connected")
-        return False, None
-
-    try:
-        response = requests.post(
-            f"{url.rstrip('/')}/Library/Refresh",
-            headers={"X-Emby-Token": api_key},
-            timeout=_TIMEOUT,
-        )
-    except Exception as exc:
-        logger.warning("Jellyfin library refresh failed: %s", type(exc).__name__)
-        return False, None
-
-    if not response.ok:
-        logger.warning("Jellyfin library refresh returned HTTP %d", response.status_code)
-    return response.ok, response.status_code
-
-
 # ── The listener ──────────────────────────────────────────────────────────────
 
 def _notify_failure(hook_name: str, status: int | None) -> None:
     """A hook that fails silently is worse than not having one."""
-    try:
-        from app.requests import notify as notify_module
-
-        detail = f"HTTP {status}" if status else "nessuna risposta"
-        notify_module.notify(
-            notify_module.HOOK_FAILED,
-            f"L'hook «{hook_name}» non è andato a buon fine ({detail}).",
-            notify_module.settings_manager_ids(),
-            title="Hook post-download",
-            panel_wide=True,
-        )
-    except Exception:
-        logger.exception("Cannot announce the hook failure")
+    detail = f"HTTP {status}" if status else "nessuna risposta"
+    notifier.notify("Hook post-download", f"L'hook «{hook_name}» non è riuscito ({detail}).")
 
 
 def on_job_finished(job) -> None:
@@ -238,9 +200,6 @@ def on_job_finished(job) -> None:
     if status not in HOOK_EVENTS:
         return
 
-    if status == "done":
-        _maybe_refresh_jellyfin()
-
     tokens = job_tokens(job)
     for hook in list_enabled_for_event(status):
         try:
@@ -252,16 +211,8 @@ def on_job_finished(job) -> None:
             _notify_failure(hook.get("name") or "senza nome", code)
 
 
-def _maybe_refresh_jellyfin() -> None:
-    from app.config import get_settings
-
-    if not get_settings().get("jellyfin_refresh_on_download"):
-        return
-    refresh_jellyfin_library()
-
-
 def register_hook_listener():
-    """Register once. Idempotent, like the other two listeners."""
+    """Register once. Idempotent, like the other listener."""
     global _listener_registered
     with _listener_lock:
         if _listener_registered:

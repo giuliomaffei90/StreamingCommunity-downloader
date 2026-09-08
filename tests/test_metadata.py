@@ -15,9 +15,7 @@ them.
 
 import pytest
 
-from app.auth.permissions import ALL_PERMISSIONS
 from app.core import metadata, tv
-from tests.conftest import do_setup, make_user, session_for
 
 
 PROPS = {
@@ -213,21 +211,13 @@ def test_cached_tmdb_id_never_does_io(client, props, monkeypatch):
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
-@pytest.fixture
-def admin(client, admin_credentials):
-    do_setup(client, admin_credentials)
-    user = make_user("boss", "jf-boss-id", int(ALL_PERMISSIONS))
-    client.cookies.clear()
-    return user, session_for(client, user.id)
-
-
-def test_the_endpoint_returns_normalised_metadata(client, admin, props):
+def test_the_endpoint_returns_normalised_metadata(client, props):
     res = client.get("/api/metadata/tv/1?slug=test-series&version=v1")
     assert res.status_code == 200
     assert res.json()["plot"] == PROPS["plot"]
 
 
-def test_a_metadata_miss_is_a_200_not_a_502(client, admin, monkeypatch):
+def test_a_metadata_miss_is_a_200_not_a_502(client, monkeypatch):
     """A modal with no plot is a modal with no plot, not an error page."""
     monkeypatch.setattr(
         tv, "get_title_props", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
@@ -238,14 +228,14 @@ def test_a_metadata_miss_is_a_200_not_a_502(client, admin, monkeypatch):
     assert res.json()["source"] == "none"
 
 
-def test_a_bad_media_type_is_refused(client, admin):
+def test_a_bad_media_type_is_refused(client):
     assert client.get("/api/metadata/anime/1").status_code == 422
 
 
-def test_a_non_numeric_title_id_is_refused(client, admin):
+def test_a_non_numeric_title_id_is_refused(client):
     assert client.get("/api/metadata/tv/abc").status_code == 400
 
 
-def test_there_is_nothing_left_to_configure(client, admin):
+def test_there_is_nothing_left_to_configure(client):
     """The provider needs no credential, so there is no settings endpoint."""
     assert client.get("/api/metadata/settings").status_code in (400, 404, 422)
