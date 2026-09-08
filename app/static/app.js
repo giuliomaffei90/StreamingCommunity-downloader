@@ -407,6 +407,7 @@ async function loadPerfSettings() {
   if (!data) return;
   document.getElementById('setting-max-concurrent').value = data.max_concurrent_downloads ?? 3;
   document.getElementById('setting-max-workers').value = data.max_segment_workers ?? 16;
+  document.getElementById('setting-transcode').checked = !!data.transcode_enabled;
 }
 
 async function loadDomainRecoverySettings() {
@@ -620,6 +621,7 @@ async function savePerfSettings() {
       body: JSON.stringify({
         max_concurrent_downloads: concurrent,
         max_segment_workers: workers,
+        transcode_enabled: document.getElementById('setting-transcode').checked,
       }),
     });
     if (res.ok) {
@@ -1443,16 +1445,18 @@ function connectGlobalStream() {
 
 const PHASE_LABELS = {
   scheduled:'Programmato', queued:'In coda', running:'In corso', joining:'Finalizzazione',
-  audio:'Audio', merging:'Unione', done:'Completato', error:'Errore', cancelled:'Annullato',
+  audio:'Audio', merging:'Unione', transcoding:'Ricodifica', done:'Completato',
+  error:'Errore', cancelled:'Annullato',
 };
 const PHASE_BADGE = {
   scheduled:'bg-yellow-lt', queued:'bg-secondary-lt', running:'bg-blue-lt', joining:'bg-yellow-lt',
-  audio:'bg-teal-lt', merging:'bg-purple-lt', done:'bg-success-lt',
+  audio:'bg-teal-lt', merging:'bg-purple-lt', transcoding:'bg-orange-lt', done:'bg-success-lt',
   error:'bg-danger-lt', cancelled:'bg-secondary-lt',
 };
 const PHASE_BAR = {
   running:'bg-blue', joining:'phase-bar-joining bg-warning',
   audio:'phase-bar-audio bg-teal', merging:'phase-bar-merging bg-purple',
+  transcoding:'bg-orange',
   done:'phase-bar-done bg-success', error:'phase-bar-error bg-danger',
 };
 const PHASE_BORDER_MAP = {
@@ -1744,12 +1748,12 @@ function handlePhaseEvent(jobId, phase) {
   const bar = document.getElementById(`job-bar-${jobId}`);
   if (bar) {
     bar.className = `progress-bar ${_phaseBar(phase)} progress-bar-striped progress-bar-animated job-progress-bar`;
-    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase.startsWith('audio_');
+    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase === 'transcoding' || phase.startsWith('audio_');
     if (isIndeterminate) bar.style.width = '100%';
   }
   const info = document.getElementById(`job-info-${jobId}`);
   if (info) {
-    const isIndeterminate = phase === 'joining' || phase === 'merging';
+    const isIndeterminate = phase === 'joining' || phase === 'merging' || phase === 'transcoding';
     if (isIndeterminate) info.textContent = _phaseLabel(phase) + '...';
   }
   _updateSteps(jobId, phase);

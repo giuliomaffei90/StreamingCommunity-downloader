@@ -82,8 +82,15 @@ class JobManager:
     @staticmethod
     def _compute_phases(audio_languages: list) -> list:
         """Return the ordered list of phase names that will be emitted for this job."""
-        steps = ["video", "joining"] + [f"audio_{l}" for l in (audio_languages or ["ita"])] + ["merging", "done"]
-        return steps
+        from app.core import transcode
+
+        steps = ["video", "joining"] + [f"audio_{l}" for l in (audio_languages or ["ita"])] + ["merging"]
+        # Read once, at submit: the step list is what the card draws, and a
+        # setting flipped mid-download must not make a step appear or vanish
+        # under it.
+        if transcode.enabled():
+            steps.append("transcoding")
+        return steps + ["done"]
 
     def update_max_concurrent(self, n: int):
         old = self._semaphore_value
@@ -388,6 +395,7 @@ class JobManager:
 
                 try:
                     result = fn(*args, **kwargs)
+                    result = self._maybe_transcode(job, result)
                     job.status = "done"
                     job.output_path = result
                     self._emit(job, {"type": "done", "output_path": result})
@@ -406,6 +414,21 @@ class JobManager:
                         logger.info("Cleaned up temp dir: %s", tmp_path)
         finally:
             self._notify_listeners(job)
+
+    def _maybe_transcode(self, job: "DownloadJob", result):
+        """Re-encode the finished file, when that is switched on.
+
+        Runs inside the download semaphore on purpose: it is the same kind of
+        heavy work a download is, and letting several of them out at once would
+        put every core on video encoding while the downloads they belong to wait
+        for a slot.
+        """
+        from app.core import transcode
+
+        if not result or not transcode.enabled():
+            return result
+        self._emit(job, {"type": "status", "phase": "transcoding"})
+        return transcode.transcode(result, cancel_event=job.cancel_event)
 
     def _submit_job(self, job: DownloadJob, fn, *args, **kwargs) -> str:
         with self._lock:

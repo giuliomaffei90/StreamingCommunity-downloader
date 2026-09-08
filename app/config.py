@@ -62,6 +62,10 @@ SETTINGS_DEFAULTS = {
     "domain_check_interval_minutes": 360,
     # Post a macOS notification when a download finishes. See app/notify.py.
     "notifications_enabled": True,
+    # Re-encode each finished download to HEVC. Off: it costs about a third of
+    # the running time in CPU to save about a third of the size, on a source
+    # that is already heavily compressed. See app/core/transcode.py.
+    "transcode_enabled": False,
 }
 
 

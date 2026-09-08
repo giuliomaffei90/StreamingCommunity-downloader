@@ -165,6 +165,7 @@ class SettingsUpdate(BaseModel):
 
     max_concurrent_downloads: int | None = None
     max_segment_workers: int | None = None
+    transcode_enabled: bool | None = None
     naming_templates: dict[str, str] | None = None
     domain_auto_check_enabled: bool | None = None
     domain_auto_apply: bool | None = None
