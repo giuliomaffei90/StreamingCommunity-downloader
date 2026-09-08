@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Build the release .app and put it in ~/Downloads.
+#
+#   ./scripts/build-release.sh
+#
+# The test run is not a formality: the bundle takes half a minute to build and
+# several more to notice it is broken, and a failure inside a frozen app reports
+# far worse than the same failure from source.
+
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO"
+
+APP_NAME="StreamingCommunity Downloader.app"
+DEST_DIR="$HOME/Downloads"
+DEST="$DEST_DIR/$APP_NAME"
+
+PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3)"
+fi
+
+echo "==> Test"
+"$PYTHON" -m pytest -q
+
+echo "==> Build"
+rm -rf build dist
+"$PYTHON" -m PyInstaller StreamingCommunity.spec --noconfirm --clean
+
+BUILT="dist/$APP_NAME"
+
+echo "==> Verifica del bundle"
+# Each of these is something that has actually been missing from a bundle that
+# built without complaint, and that only shows up when the app is opened.
+for required in \
+  "Contents/MacOS/StreamingCommunity" \
+  "Contents/Resources/app/templates/index.html" \
+  "Contents/Resources/app/static/app.js" \
+  "Contents/Resources/AppIcon.icns"
+do
+  if [[ ! -e "$BUILT/$required" ]]; then
+    echo "   MANCA: $required" >&2
+    exit 1
+  fi
+done
+
+if ! find "$BUILT" -name 'ffmpeg*' -type f | grep -q .; then
+  echo "   MANCA: il binario ffmpeg statico — l'app non unirebbe nulla" >&2
+  exit 1
+fi
+
+VERSION="$("$PYTHON" -c 'import app; print(app.__version__)')"
+
+echo "==> Installazione in $DEST_DIR"
+if [[ -e "$DEST" ]]; then
+  # Only ever replace a previous build of this app. Anything else sharing the
+  # name is somebody's file, and this script does not get to decide about it.
+  if [[ ! -x "$DEST/Contents/MacOS/StreamingCommunity" ]]; then
+    echo "   «$DEST» esiste e non è una build di quest'app. Rimuovilo a mano." >&2
+    exit 1
+  fi
+  rm -rf "$DEST"
+fi
+mkdir -p "$DEST_DIR"
+cp -R "$BUILT" "$DEST"
+
+SIZE="$(du -sh "$DEST" | cut -f1)"
+echo
+echo "Pronta: $DEST"
+echo "Versione $VERSION · $SIZE"
+echo
+echo "Non è firmata: sul tuo Mac si apre normalmente, altrove serve tasto destro > Apri."

@@ -30,6 +30,11 @@ schedule.json
 # Lock file held by config.update_data()
 data.json.lock
 
-# Build artifacts (PyInstaller)
-build/
-dist/
+# Build artifacts (PyInstaller). Anchored to the repo root: a bare "build/"
+# matches a directory of that name at any depth, and swallowed
+# .claude/skills/build/ whole.
+/build/
+/dist/
+
+# Intermediate, rebuilt by icon/make_icon.py
+icon/AppIcon.iconset/

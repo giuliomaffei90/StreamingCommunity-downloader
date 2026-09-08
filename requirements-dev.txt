@@ -1,7 +1,9 @@
-# Test-only dependencies. Kept out of requirements.txt so the runtime image
-# does not ship a test framework: the Dockerfile installs requirements.txt only.
+# Development-only dependencies: the test suite, the bundler, and Pillow for
+# regenerating the icon. Kept out of requirements.txt so none of it is analysed
+# into the app bundle.
 -r requirements.txt
 
 httpx        # required by fastapi.testclient
 pytest
 pyinstaller
+pillow

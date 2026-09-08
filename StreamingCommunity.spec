@@ -14,6 +14,10 @@ in the built app, never when running from source:
 * uvicorn's protocol, loop and lifespan implementations are imported by *name*
   at runtime. Nothing references them statically, so the analysis cannot see
   them and the server dies on its first request.
+
+The icon is read from icon/AppIcon.icns, which is committed. Regenerate it with
+``python icon/make_icon.py`` — that needs Pillow, a development dependency the
+build itself must not require.
 """
 
 from PyInstaller.utils.hooks import collect_all
@@ -85,7 +89,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="StreamingCommunity Downloader.app",
-    icon=None,
+    icon="icon/AppIcon.icns",
     bundle_identifier="local.streamingcommunity.downloader",
     info_plist={
         "CFBundleName": "StreamingCommunity Downloader",

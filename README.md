@@ -42,11 +42,17 @@ Serve Python ≥ 3.11.
 ```bash
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-pyinstaller StreamingCommunity.spec --noconfirm --clean
+./scripts/build-release.sh
 ```
 
-Il risultato è `dist/StreamingCommunity Downloader.app` (~110 MB), autonomo: si porta dietro Python
-e un FFmpeg statico, quindi non richiede nulla di installato sul Mac che la esegue.
+Lo script lancia i test, compila, verifica che nel bundle ci sia tutto e lascia l'app in
+`~/Downloads`. Circa 110 MB, autonoma: si porta dietro Python e un FFmpeg statico, quindi non
+richiede nulla di installato sul Mac che la esegue.
+
+Per compilare senza installare né testare: `pyinstaller StreamingCommunity.spec --noconfirm --clean`,
+che lascia il risultato in `dist/`.
+
+L'icona sta in `icon/AppIcon.icns` ed è già compilata; si rigenera con `python icon/make_icon.py`.
 
 ### Eseguirla dai sorgenti
 
