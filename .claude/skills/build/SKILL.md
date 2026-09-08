@@ -13,11 +13,15 @@ Run the script. It does everything and stops at the first thing that is wrong:
 
 It runs the tests, closes any running instance of the app, builds
 `StreamingCommunity.spec`, checks the bundle actually contains what it needs,
-and copies the result over whatever is in `~/Downloads`.
+copies the result over whatever is in `~/Downloads`, and opens it.
+
+Do not filter the script's output down to the last few lines: the "Chiusura
+istanze" line is worth reporting and gets lost that way.
 
 ## Report back
 
 - Where it landed, its version and its size — the script prints all three.
+- That it is now running, since the script opens it.
 - That a running instance was closed, if the script said so — a download that
   was in flight did not survive it.
 - That it is unsigned: on this Mac it opens normally, elsewhere it needs

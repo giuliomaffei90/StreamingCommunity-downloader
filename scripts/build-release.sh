@@ -99,3 +99,9 @@ echo "Pronta: $DEST"
 echo "Versione $VERSION · $SIZE"
 echo
 echo "Non è firmata: sul tuo Mac si apre normalmente, altrove serve tasto destro > Apri."
+
+# The counterpart to closing it at the start: the build exists to be run, and
+# the copy just installed is the one to open — never the one left in dist/.
+echo
+echo "==> Avvio"
+open "$DEST"
