@@ -54,3 +54,35 @@ def test_the_stored_value_is_the_hostname_not_the_url(client, monkeypatch, _conf
     client.put("/api/domain", json={"domain": "https://example.test/film/9"})
 
     assert json.loads(_configured_domain.read_text())["domain"] == "example.test"
+
+
+# ── Saving several sections at once ───────────────────────────────────────────
+
+def test_overlapping_saves_do_not_lose_each_other(client, _configured_domain):
+    """Closing the settings modal fires several saves at once.
+
+    Each used to read the stored settings before taking the lock, then write its
+    own merge over the top, so the last one back silently reverted every field
+    the others had just changed — and every one of them answered 200, which is
+    why the interface said "saved" about values that were not.
+    """
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    bodies = [
+        {"max_concurrent_downloads": 7},
+        {"max_segment_workers": 12},
+        {"domain_check_interval_minutes": 90},
+        {"transcode_enabled": True},
+    ]
+
+    with ThreadPoolExecutor(max_workers=len(bodies)) as pool:
+        responses = list(pool.map(
+            lambda body: client.put("/api/domain/settings", json=body), bodies))
+
+    assert all(r.status_code == 200 for r in responses)
+    stored = json.loads(_configured_domain.read_text())["settings"]
+    assert stored["max_concurrent_downloads"] == 7
+    assert stored["max_segment_workers"] == 12
+    assert stored["domain_check_interval_minutes"] == 90
+    assert stored["transcode_enabled"] is True

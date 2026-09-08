@@ -138,3 +138,27 @@ def update_data(changes: dict):
 
 def save_settings(new_settings: dict):
     update_data({"settings": new_settings})
+
+
+def merge_settings(changes: dict) -> dict:
+    """Apply *changes* over the stored settings, reading and writing under one
+    lock, and return the result.
+
+    Read-modify-write outside the lock loses updates whenever two saves overlap,
+    and they do: closing the settings modal fires several at once. Each would
+    read the same stored state, then write its own merge over the top, so the
+    last one back silently reverted every field the others had just changed —
+    while every one of them answered 200.
+    """
+    lock = FileLock(str(DATA_FILE) + ".lock")
+    with lock:
+        try:
+            with open(DATA_FILE) as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {}
+        merged = {**SETTINGS_DEFAULTS, **data.get("settings", {}), **changes}
+        data["settings"] = merged
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f)
+        return merged

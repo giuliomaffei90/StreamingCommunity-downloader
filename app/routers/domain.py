@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app import config
-from app.config import get_settings, save_settings
+from app.config import get_settings
 from app.core import domain_recovery, naming
 from app.core.paths import validate_library_path
 from app.core.page import get_domain_version
@@ -237,11 +237,9 @@ _SETTING_RANGES = (
 
 @router.put("/settings")
 def set_app_settings(body: SettingsUpdate):
-    # save_settings() replaces the whole `settings` dict rather than merging, so
-    # every key the caller did not send has to be carried over here or it is
-    # lost. Merging over get_settings() makes that structural: a key added to
-    # SETTINGS_DEFAULTS later survives a PUT from an older client without
-    # anyone having to remember to re-emit it.
+    # Only what the caller actually sent. config.merge_settings carries the rest
+    # over, so a key added to SETTINGS_DEFAULTS later survives a PUT from an
+    # older client without anyone having to remember to re-emit it.
     provided = {k: v for k, v in body.model_dump().items() if v is not None}
 
     for field, low, high in _SETTING_RANGES:
@@ -251,8 +249,10 @@ def set_app_settings(body: SettingsUpdate):
                 status_code=400, detail=f"{field} must be between {low} and {high}"
             )
 
-    new_settings = {**get_settings(), **provided}
-    save_settings(new_settings)
+    # Merged inside config's lock, not here: several of these arrive at once
+    # when the settings modal closes, and reading before locking loses whichever
+    # write lands first.
+    new_settings = config.merge_settings(provided)
     from app.jobs import job_manager
     job_manager.update_max_concurrent(new_settings["max_concurrent_downloads"])
     return new_settings
