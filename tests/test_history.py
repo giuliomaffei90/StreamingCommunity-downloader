@@ -89,6 +89,8 @@ def test_unreadable_history_is_not_fatal(ledger, manager):
 # ── Surviving a restart ───────────────────────────────────────────────────────
 
 def test_unfinished_records_become_interrupted(manager):
+    # "scheduled" is no longer a status this app produces; it stays here
+    # because ledgers written before scheduling was removed still carry it.
     for status in ("queued", "running", "scheduled"):
         history.record(_job(manager, title=status, status=status))
     history.record(_job(manager, title="finito", status="done"))

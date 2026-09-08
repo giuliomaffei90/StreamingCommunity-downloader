@@ -37,7 +37,6 @@ def _path_from_env(name: str, default: Path) -> Path:
 SUPPORT_DIR = _app_support()
 
 DATA_FILE = _path_from_env("DATA_FILE", SUPPORT_DIR / "data.json")
-SCHEDULE_FILE = _path_from_env("SCHEDULE_FILE", SUPPORT_DIR / "schedule.json")
 TMP_DIR = _path_from_env("TMP_DIR", SUPPORT_DIR / "tmp")
 
 # Where downloads land when no per-type library path is configured. Inside the

@@ -101,7 +101,8 @@ Do not verify by building. A build takes a minute, closes the running app and re
 ### Entry flow
 
 `desktop.py` → uvicorn thread → `app.main:app`, and the main thread goes to `webview.start()`. The
-lifespan registers the two job listeners, loads the schedule store and starts the domain watch loop.
+lifespan registers the two job listeners, rebuilds the download list from the ledger and starts
+the domain watch loop.
 
 ### Layout
 
@@ -130,7 +131,7 @@ lifespan registers the two job listeners, loads the schedule store and starts th
 - `downloads_notify.py` — what to say about a finished download, and the batch bookkeeping that
   turns a whole season into one summary
 - `config.py` — paths and settings
-- `schedule.py`, `progress.py`, `routers/`, `templates/`, `static/`
+- `progress.py`, `routers/`, `templates/`, `static/`
 
 **`desktop.py`** — the window. **`StreamingCommunity.spec`** — the bundle.
 
@@ -142,7 +143,8 @@ There is no database. Everything is JSON under
 - `data.json` — source domain, download folder, performance settings, domain-recovery switches,
   naming templates. Written only through `config.update_data()`, which holds the
   file lock: a background thread writes `domain` while the user may be saving something else.
-- `schedule.json` — scheduled downloads
+- `downloads.json` — the download ledger: what was downloaded, what failed, what was cut short.
+  See `app/history.py`.
 
 Downloads land in `config.download_dir()`, defaulting to `~/Movies/StreamingCommunity`. Temp
 segments go to `tmp/<job_id>/` under Application Support and are cleaned up afterwards.
@@ -174,8 +176,7 @@ which is how the tests point them at a temporary directory.
 - **A batch's expected total is fixed before its first job is submitted**, and every job created
   must reach a terminal listener exactly once — otherwise the batch never closes and its summary
   never fires. That is why `jobs.py` notifies listeners on *every* path out of `_run_download`,
-  including the job cancelled before it started, and why `cancel()` notifies for a job still
-  `scheduled` that the executor never saw.
+  including the job cancelled before it started.
 - **Retrying a job drops its batch link.** `JobManager.retry()` clears `batch_id`: the season
   summary that job belonged to already counted the failure and has been sent, and reporting into it
   a second time would close it early on episodes somebody is still waiting for. The call to repeat
@@ -252,6 +253,12 @@ Re-adding any of these means re-adding the layer under it, which is the actual c
 - **Docker, the compose templates, the ghcr workflow.** The deliverable is a `.app`.
 - **`panel.db` and `app/db.py`.** Every table was `jf_*`, and the one that outlived the strip — the
   download hooks — has since gone too.
+- **Scheduling a download for later.** A `datetime-local` next to the action button, a
+  `schedule.json` store, a 30-second scheduler loop, `POST /api/download/schedule/{film,episode,
+  anime}`, a `scheduled` job status with its own badge and a "run it now" button. Removed on
+  request: it was not used. Note that `history.py` and `jobs.restore_from_history()` still accept
+  `scheduled` as an incoming status — ledgers written before the removal carry it, and those rows
+  still have to be closed. That is the only place the word should appear.
 - **Post-download webhooks.** They existed to tell Jellyfin to rescan. With Jellyfin gone the
   remaining use was "say when a download finished", which `app/notify.py` already does natively.
 

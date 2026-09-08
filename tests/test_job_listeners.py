@@ -78,23 +78,6 @@ def test_a_job_cancelled_before_it_starts_still_reaches_the_listeners(manager):
     assert cancelled and cancelled[0].status == "cancelled"
 
 
-def test_a_scheduled_job_cancelled_before_firing_reaches_the_listeners(manager, tmp_path):
-    """A scheduled job never enters _run_download, so cancel() must notify."""
-    from datetime import datetime, timedelta, timezone
-
-    from app.schedule import ScheduleStore
-
-    manager.set_schedule_store(ScheduleStore(tmp_path / "schedule.json"))
-    seen = _collect(manager)
-    later = datetime.now(timezone.utc) + timedelta(days=1)
-    job_id = manager.schedule_film(1, "Film", "example.test", later)
-
-    assert manager.cancel(job_id) is True
-
-    assert [j.job_id for j in seen] == [job_id]
-    assert seen[0].status == "cancelled"
-
-
 def test_a_listener_does_not_hold_a_download_slot(manager):
     """A slow listener must not stop the next download from starting.
 

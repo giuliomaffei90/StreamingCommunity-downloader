@@ -63,9 +63,9 @@ def _configured_domain(tmp_path, monkeypatch):
 def client():
     """TestClient with the app lifespan not started.
 
-    Not entered as a context manager on purpose: the lifespan starts the
-    download scheduler and re-hydrates the schedule store, neither of which
-    belongs in a unit test.
+    Not entered as a context manager on purpose: the lifespan registers the
+    job listeners, rebuilds the download list from the ledger and starts the
+    domain watch loop, none of which belongs in a unit test.
     """
     from app.main import app
 

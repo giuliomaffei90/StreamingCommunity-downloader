@@ -107,25 +107,6 @@ def test_the_client_cannot_choose_the_source_domain(client, panel, stub_jobs):
     assert domains == {"example.test"}
 
 
-def test_a_scheduled_batch_creates_scheduled_jobs(client, panel, stub_jobs, monkeypatch):
-    from app.jobs import job_manager
-    from app.schedule import ScheduleStore
-
-    scheduled: list[dict] = []
-    monkeypatch.setattr(
-        job_manager, "schedule_episode",
-        lambda *a, **k: scheduled.append(k) or f"job-{len(scheduled)}",
-    )
-
-    response = _post(client, panel, "/api/download/season",
-                     {**SEASON_BODY, "scheduled_at": "2999-01-01T00:00:00Z"})
-
-    assert response.status_code == 202
-    assert response.json()["status"] == "scheduled"
-    assert len(scheduled) == 3
-    assert {k["batch_kind"] for k in scheduled} == {"season"}
-
-
 def test_a_batch_is_registered_before_any_job_is_submitted(client, panel, monkeypatch):
     """A job can fail the instant it is created; its batch must already exist."""
     from app.jobs import job_manager

@@ -15,8 +15,7 @@ from fastapi.responses import HTMLResponse
 from app import __version__, downloads_notify
 from app.core import domain_recovery
 from app.jobs import job_manager
-from app.schedule import ScheduleStore
-from app.config import SCHEDULE_FILE, download_dir
+from app.config import download_dir
 from app.routers import (
     domain, search, tv, downloads, progress, files, images, anime,
     metadata as metadata_router,
@@ -90,9 +89,6 @@ async def lifespan(app: FastAPI):
     # no worker behind it and never will, so it comes back as failed rather than
     # as nothing at all.
     job_manager.restore_from_history()
-    store = ScheduleStore(SCHEDULE_FILE)
-    job_manager.set_schedule_store(store)
-    job_manager.load_scheduled_from_store()
     job_manager.set_loop(asyncio.get_event_loop())
     # Watches the source itself rather than anything in it, and sleeps before
     # its first pass so the lifespan never does network I/O.

@@ -16,7 +16,6 @@ videos/
 # an environment variable, and data.json carries the source domain.
 data.json
 data.json.lock
-schedule.json
 
 # Build artifacts (PyInstaller). Anchored to the repo root: a bare "build/"
 # matches a directory of that name at any depth, and swallowed

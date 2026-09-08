@@ -117,6 +117,9 @@ def close_interrupted() -> list[dict]:
         records = _read()
         touched = []
         for entry in records:
+            # "scheduled" is no longer a status this app produces; entries
+            # written before scheduling was removed still carry it, and
+            # they have to be closed like any other unfinished row.
             if entry.get("status") in ("queued", "running", "scheduled"):
                 entry["status"] = INTERRUPTED
                 entry["error"] = "Interrotto dalla chiusura dell'app"

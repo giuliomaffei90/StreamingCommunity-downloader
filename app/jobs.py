@@ -24,7 +24,6 @@ def _output_dir() -> str:
 
 logger = logging.getLogger(__name__)
 
-SCHEDULER_INTERVAL = 30  # seconds
 
 # Terminal states a job can be run again from.
 RETRYABLE = ("error", "cancelled")
@@ -35,10 +34,8 @@ class DownloadJob:
     job_id: str
     title: str
     type: str  # "film" | "episode" | "anime"
-    status: str  # "scheduled" | "queued" | "running" | "done" | "error" | "cancelled"
+    status: str  # "queued" | "running" | "done" | "error" | "cancelled"
     created_at: datetime
-    scheduled_at: Optional[datetime] = None
-    schedule_id: Optional[str] = None
     error: Optional[str] = None
     output_path: Optional[str] = None
     progress: dict = field(default_factory=lambda: {"current": 0, "total": 0, "pct": 0, "speed": 0, "eta": None})
@@ -62,7 +59,7 @@ class DownloadJob:
 
     # The call that ran this download, recorded so it can be run again without
     # the browser re-resolving the title. Set in _run_download, which every path
-    # into the executor goes through — including a scheduled job fired later.
+    # into the executor goes through.
     call: Optional[tuple] = None
 
 
@@ -82,7 +79,6 @@ class JobManager:
         self._transcode_value = t
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._subscribers: list[asyncio.Queue] = []
-        self._schedule_store = None  # set via set_schedule_store()
         self._listeners: list = []
 
     @staticmethod
@@ -114,11 +110,6 @@ class JobManager:
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
-        loop.create_task(self._scheduler_loop())
-
-    def set_schedule_store(self, store):
-        from app.schedule import ScheduleStore
-        self._schedule_store: Optional[ScheduleStore] = store
 
     def get(self, job_id: str) -> Optional[DownloadJob]:
         with self._lock:
@@ -140,8 +131,6 @@ class JobManager:
             "type": job.type,
             "status": job.status,
             "created_at": job.created_at.isoformat(),
-            "scheduled_at": job.scheduled_at.isoformat() if job.scheduled_at else None,
-            "schedule_id": job.schedule_id,
             "error": job.error,
             "output_path": job.output_path,
             "progress": job.progress,
@@ -265,42 +254,6 @@ class JobManager:
 
         return factory
 
-    # ── Scheduler loop ─────────────────────────────────────────────────────────
-
-    async def _scheduler_loop(self):
-        while True:
-            await asyncio.sleep(SCHEDULER_INTERVAL)
-            now = datetime.now(timezone.utc)
-            with self._lock:
-                jobs = list(self._jobs.values())
-            for job in jobs:
-                if job.status != "scheduled" or job.scheduled_at is None or job.schedule_id is None:
-                    continue
-                sa = job.scheduled_at
-                if sa.tzinfo is None:
-                    sa = sa.replace(tzinfo=timezone.utc)
-                if sa > now:
-                    continue
-                if self._schedule_store is None:
-                    continue
-                entry = self._schedule_store.get_by_schedule_id(job.schedule_id)
-                if entry is None:
-                    continue
-                logger.info("Scheduler firing job_id=%s schedule_id=%s", job.job_id, job.schedule_id)
-                try:
-                    self._fire_job(job, entry["type"], entry["params"])
-                except Exception as e:
-                    logger.error("Failed to fire scheduled job %s: %s", job.job_id, e)
-
-    def _fire_job(self, job: DownloadJob, type_: str, params: dict):
-        fn, args, kwargs = self._build_call(type_, params, job)
-        with self._lock:
-            job.status = "queued"
-            if self._schedule_store is not None and job.schedule_id:
-                self._schedule_store.mark_fired(job.schedule_id)
-        self._broadcast({"type": "job_status", "job_id": job.job_id, "status": "queued"})
-        self._executor.submit(self._run_download, job, fn, *args, **kwargs)
-
     def _build_call(self, type_: str, params: dict, job: DownloadJob):
         pf = self._make_progress_factory(job)
         td = str(TMP_DIR / job.job_id)
@@ -336,35 +289,18 @@ class JobManager:
                 audio_languages=params.get("audio_languages", ["ita"]),
                 subtitle_languages=params.get("subtitle_languages", ["ita", "eng"]),
             )
-        raise ValueError(f"Unknown schedule type: {type_!r}")
+        raise ValueError(f"Unknown job type: {type_!r}")
 
     # ── Job lifecycle ──────────────────────────────────────────────────────────
-
-    def fire_now(self, job_id: str) -> bool:
-        job = self._jobs.get(job_id)
-        if not job or job.status != "scheduled" or job.schedule_id is None:
-            return False
-        entry = self._schedule_store.get_by_schedule_id(job.schedule_id) if self._schedule_store else None
-        if entry is None:
-            return False
-        self._fire_job(job, entry["type"], entry["params"])
-        return True
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
-            if not job or job.status not in ("scheduled", "queued", "running"):
+            if not job or job.status not in ("queued", "running"):
                 return False
-            # A scheduled job was never handed to the executor, so _run_download
-            # will never run for it and nothing else would ever tell listeners it
-            # is over. Queued and running ones go through _run_download, which
-            # notifies on every path.
-            was_scheduled = job.status == "scheduled"
             job.cancel_event.set()
             job.status = "cancelled"
         self._emit(job, {"type": "error", "message": "Annullato"})
-        if was_scheduled:
-            self._notify_listeners(job)
         return True
 
     def retry(self, job_id: str) -> bool:
@@ -394,14 +330,12 @@ class JobManager:
         return True
 
     def dismiss(self, job_id: str) -> bool:
-        """Remove a finished/cancelled job and clean it from the schedule store."""
+        """Remove a finished/cancelled job, and forget it from the ledger."""
         with self._lock:
             job = self._jobs.get(job_id)
             if not job or job.status not in ("done", "error", "cancelled"):
                 return False
             del self._jobs[job_id]
-        if self._schedule_store is not None:
-            self._schedule_store.remove_by_job_id(job_id)
         from app import history
         history.forget(job_id)
         self._broadcast({"type": "job_dismissed", "job_id": job_id})
@@ -496,25 +430,17 @@ class JobManager:
         self._executor.submit(self._run_download, job, fn, *args, **kwargs)
         return job.job_id
 
-    def _make_job(self, title: str, type_: str, scheduled_at: Optional[datetime] = None,
-                  schedule_id: Optional[str] = None, phases: list = None,
+    def _make_job(self, title: str, type_: str, phases: list = None,
                   **meta) -> DownloadJob:
         """Build a job. ``meta`` carries the notification fields declared on
         DownloadJob (batch_id, season, …); unknown keys raise, which is
         the point — a typo must not silently vanish."""
-        now = datetime.now(timezone.utc)
-        sa = scheduled_at.replace(tzinfo=timezone.utc) if scheduled_at and scheduled_at.tzinfo is None else scheduled_at
-        status = "scheduled" if sa and sa > now else "queued"
         return DownloadJob(
             job_id=str(uuid.uuid4()),
             title=title,
             type=type_,
-            status=status,
-            # Same instant `status` was decided against, and timezone-aware like
-            # scheduled_at so the two stay comparable.
-            created_at=now,
-            scheduled_at=scheduled_at,
-            schedule_id=schedule_id,
+            status="queued",
+            created_at=datetime.now(timezone.utc),
             phases=phases or [],
             **meta,
         )
@@ -522,14 +448,13 @@ class JobManager:
     # ── Submit (immediate) ─────────────────────────────────────────────────────
 
     def submit_film(self, id_film: int, title: str, domain: str, year: str = None,
-                    schedule_id: str = None,
                     audio_languages: list[str] = None,
                     subtitle_languages: list[str] = None,
                     strict_audio: bool = False,
                     tmdb_id: int = None) -> str:
         from app.core.film import download_film
 
-        job = self._make_job(title, "film", schedule_id=schedule_id,
+        job = self._make_job(title, "film",
                              phases=self._compute_phases(audio_languages or ["ita"]), media_label=title, year=year)
         return self._submit_job(
             job, download_film,
@@ -554,7 +479,6 @@ class JobManager:
 
     def submit_episode(self, tv_id: int, eps: list[dict], ep_index: int, domain: str,
                        token: str, tv_name: str, season: int, year: str = None,
-                       schedule_id: str = None,
                        audio_languages: list[str] = None,
                        subtitle_languages: list[str] = None,
                        strict_audio: bool = False, batch_id: str = None,
@@ -564,7 +488,7 @@ class JobManager:
 
         ep = eps[ep_index]
         title = f"{tv_name} S{season:02d}E{fmt_ep(ep['n'])}"
-        job = self._make_job(title, "episode", schedule_id=schedule_id,
+        job = self._make_job(title, "episode",
                              phases=self._compute_phases(audio_languages or ["ita"]), batch_id=batch_id, batch_kind=batch_kind,
                              batch_label=batch_label, media_label=tv_name, year=year,
                              season=season, episode_number=str(ep["n"]))
@@ -596,7 +520,6 @@ class JobManager:
     # provider would have nothing to resolve against.
     def submit_anime_episode(self, anime_id: str, episode: dict, anime_name: str,
                              anime_type: str = "tv", year: str = None,
-                             schedule_id: str = None,
                              audio_languages: list[str] = None,
                              subtitle_languages: list[str] = None,
                              strict_audio: bool = False, batch_id: str = None,
@@ -605,7 +528,7 @@ class JobManager:
 
         ep_num = episode.get("number", "?")
         title = f"{anime_name} E{ep_num}"
-        job = self._make_job(title, "anime", schedule_id=schedule_id,
+        job = self._make_job(title, "anime",
                              phases=self._compute_phases(audio_languages or ["ita"]), batch_id=batch_id, batch_kind=batch_kind,
                              batch_label=batch_label, media_label=anime_name, year=year,
                              episode_number=str(ep_num))
@@ -629,81 +552,6 @@ class JobManager:
             },
         )
 
-    # ── Schedule (future) ──────────────────────────────────────────────────────
-
-    def schedule_film(self, id_film: int, title: str, domain: str,
-                      scheduled_at: datetime, year: str = None,
-                      audio_languages: list[str] = None,
-                      subtitle_languages: list[str] = None,
-                      tmdb_id: int = None) -> str:
-        params = {
-            "id": id_film, "title": title, "domain": domain, "year": year,
-            "audio_languages": audio_languages or ["ita"],
-            "subtitle_languages": subtitle_languages or ["ita", "eng"],
-            # Persisted with the schedule: the cache it came from will not
-            # survive until the job fires.
-            "tmdb_id": tmdb_id,
-        }
-        return self._add_schedule("film", scheduled_at, params, title, media_label=title, year=year)
-
-    def schedule_episode(self, tv_id: int, eps: list[dict], ep_index: int, domain: str,
-                         token: str, tv_name: str, season: int,
-                         scheduled_at: datetime, year: str = None,
-                         audio_languages: list[str] = None,
-                         subtitle_languages: list[str] = None, batch_id: str = None,
-                         batch_kind: str = None, batch_label: str = None,
-                         tmdb_id: int = None) -> str:
-        from app.core.tv import fmt_ep
-        ep = eps[ep_index]
-        title = f"{tv_name} S{season:02d}E{fmt_ep(ep['n'])}"
-        params = {
-            "tv_id": tv_id, "eps": eps, "ep_index": ep_index,
-            "domain": domain, "token": token, "tv_name": tv_name,
-            "season": season, "year": year,
-            "audio_languages": audio_languages or ["ita"],
-            "subtitle_languages": subtitle_languages or ["ita", "eng"],
-            "tmdb_id": tmdb_id,
-        }
-        return self._add_schedule("episode", scheduled_at, params, title, batch_id=batch_id, batch_kind=batch_kind,
-                                  batch_label=batch_label, media_label=tv_name, year=year,
-                                  season=season, episode_number=str(ep["n"]))
-
-    def schedule_anime_episode(self, anime_id: str, episode: dict, anime_name: str,
-                               scheduled_at: datetime, anime_type: str = "tv",
-                               year: str = None,
-                               audio_languages: list[str] = None,
-                               subtitle_languages: list[str] = None, batch_id: str = None,
-                               batch_kind: str = None, batch_label: str = None) -> str:
-        ep_num = episode.get("number", "?")
-        title = f"{anime_name} E{ep_num}"
-        params = {
-            "anime_id": anime_id, "episode": episode, "anime_name": anime_name,
-            "anime_type": anime_type, "year": year,
-            "audio_languages": audio_languages or ["ita"],
-            "subtitle_languages": subtitle_languages or ["ita", "eng"],
-        }
-        return self._add_schedule("anime", scheduled_at, params, title, batch_id=batch_id, batch_kind=batch_kind,
-                                  batch_label=batch_label, media_label=anime_name, year=year,
-                                  episode_number=str(ep_num))
-
-    def _add_schedule(self, type_: str, scheduled_at: datetime, params: dict, title: str,
-                      **meta) -> str:
-        if self._schedule_store is None:
-            raise RuntimeError("ScheduleStore not configured")
-        schedule_id = self._schedule_store.add(type_, scheduled_at, params)
-        # Firing reuses this same job object, so notification metadata set here
-        # survives until the download actually runs. It does not survive a
-        # restart (load_scheduled_from_store rebuilds from the JSON params), and
-        # neither does the in-memory batch it would belong to.
-        job = self._make_job(title, type_, scheduled_at=scheduled_at, schedule_id=schedule_id,
-                             phases=self._compute_phases(params.get("audio_languages") or ["ita"]),
-                             **meta)
-        with self._lock:
-            self._jobs[job.job_id] = job
-        self._schedule_store.set_job_id(schedule_id, job.job_id)
-        self._broadcast({"type": "job_created", "job": self._job_to_dict(job)})
-        return job.job_id
-
     def restore_from_history(self):
         """Rebuild the whole download list from the ledger.
 
@@ -725,6 +573,8 @@ class JobManager:
             if status == history.INTERRUPTED:
                 status = "error"
             # Anything still claiming to be under way has no worker behind it.
+            # "scheduled" is gone from this app but may still sit in a ledger
+            # written before it was removed, and those have to close too.
             if status in ("queued", "running", "scheduled"):
                 status = "error"
 
@@ -761,26 +611,6 @@ class JobManager:
             with self._lock:
                 self._jobs[job.job_id] = job
         logger.info("Restored %d downloads from history", len(self._jobs))
-
-    def load_scheduled_from_store(self):
-        """Re-hydrate pending scheduled entries from the JSON store on startup."""
-        if self._schedule_store is None:
-            return
-        for entry in self._schedule_store.list_all():
-            if entry.get("fired"):
-                continue  # already dispatched in a previous session — skip
-            sid = entry["schedule_id"]
-            type_ = entry["type"]
-            params = entry["params"]
-            sa_raw = datetime.fromisoformat(entry["scheduled_at"])
-            scheduled_at = sa_raw if sa_raw.tzinfo else sa_raw.replace(tzinfo=timezone.utc)
-            title = params.get("title") or params.get("tv_name") or params.get("anime_name", "?")
-            job = self._make_job(title, type_, scheduled_at=scheduled_at, schedule_id=sid,
-                                 phases=self._compute_phases(params.get("audio_languages") or ["ita"]))
-            with self._lock:
-                self._jobs[job.job_id] = job
-            self._schedule_store.set_job_id(sid, job.job_id)
-            logger.info("Restored scheduled job %s (schedule_id=%s) for %s", job.job_id, sid, scheduled_at)
 
 
 job_manager = JobManager()

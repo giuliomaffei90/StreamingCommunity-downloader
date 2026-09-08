@@ -99,7 +99,6 @@ class SeasonDownloadRequest(BaseModel):
     year: str | None = None
     audio_languages: list[str] = ["ita"]
     subtitle_languages: list[str] = ["ita", "eng"]
-    scheduled_at: datetime | None = None
 
 
 class SeriesDownloadRequest(BaseModel):
@@ -109,7 +108,6 @@ class SeriesDownloadRequest(BaseModel):
     year: str | None = None
     audio_languages: list[str] = ["ita"]
     subtitle_languages: list[str] = ["ita", "eng"]
-    scheduled_at: datetime | None = None
 
 
 class AnimeAllDownloadRequest(BaseModel):
@@ -119,19 +117,6 @@ class AnimeAllDownloadRequest(BaseModel):
     year: str | None = None
     audio_languages: list[str] = ["ita"]
     subtitle_languages: list[str] = ["ita", "eng"]
-    scheduled_at: datetime | None = None
-
-
-class FilmScheduleRequest(FilmDownloadRequest):
-    scheduled_at: datetime
-
-
-class EpisodeScheduleRequest(EpisodeDownloadRequest):
-    scheduled_at: datetime
-
-
-class AnimeScheduleRequest(AnimeDownloadRequest):
-    scheduled_at: datetime
 
 
 # ── Batch downloads ────────────────────────────────────────────────────────────
@@ -216,11 +201,6 @@ def _episode_submits(body, tv_id, slug, tv_name, season, domain, version, token,
                 batch_id=batch_id, batch_kind=kind, batch_label=label,
                 tmdb_id=_tmdb_id("tv", tv_id),
             )
-            if body.scheduled_at:
-                return job_manager.schedule_episode(
-                    tv_id, episodes, index, domain, token, tv_name, season,
-                    body.scheduled_at, **common,
-                )
             return job_manager.submit_episode(
                 tv_id, episodes, index, domain, token, tv_name, season, **common,
             )
@@ -241,7 +221,7 @@ async def download_season(body: SeasonDownloadRequest):
         return _run_batch("season", label, submits)
 
     result = await asyncio.to_thread(_enumerate, work)
-    return {**result, "status": "scheduled" if body.scheduled_at else "queued"}
+    return {**result, "status": "queued"}
 
 
 @router.post("/series", status_code=202)
@@ -265,7 +245,7 @@ async def download_series(body: SeriesDownloadRequest):
         return _run_batch("series", body.tv_name, submits)
 
     result = await asyncio.to_thread(_enumerate, work)
-    return {**result, "status": "scheduled" if body.scheduled_at else "queued"}
+    return {**result, "status": "queued"}
 
 
 @router.post("/anime-all", status_code=202)
@@ -286,10 +266,6 @@ async def download_anime_all(body: AnimeAllDownloadRequest):
                     batch_id=batch_id, batch_kind="anime_all",
                     batch_label=body.anime_name,
                 )
-                if body.scheduled_at:
-                    return job_manager.schedule_anime_episode(
-                        body.anime_id, episode, body.anime_name, body.scheduled_at, **common,
-                    )
                 return job_manager.submit_anime_episode(
                     body.anime_id, episode, body.anime_name, **common,
                 )
@@ -299,7 +275,7 @@ async def download_anime_all(body: AnimeAllDownloadRequest):
                           [make(ep) for ep in episodes])
 
     result = await asyncio.to_thread(_enumerate, work)
-    return {**result, "status": "scheduled" if body.scheduled_at else "queued"}
+    return {**result, "status": "queued"}
 
 
 # ── Immediate downloads ────────────────────────────────────────────────────────
@@ -340,51 +316,7 @@ def download_anime(body: AnimeDownloadRequest):
     return {"job_id": job_id, "status": "queued"}
 
 
-# ── Scheduled downloads ────────────────────────────────────────────────────────
-
-@router.post("/schedule/film", status_code=202)
-def schedule_film(body: FilmScheduleRequest):
-    job_id = job_manager.schedule_film(
-        body.id, body.title, _domain(), body.scheduled_at, year=body.year,
-        audio_languages=body.audio_languages,
-        subtitle_languages=body.subtitle_languages,
-    )
-    return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
-
-
-@router.post("/schedule/episode", status_code=202)
-def schedule_episode(body: EpisodeScheduleRequest):
-    if body.ep_index < 0 or body.ep_index >= len(body.eps):
-        raise HTTPException(status_code=400, detail="ep_index out of range")
-    job_id = job_manager.schedule_episode(
-        body.tv_id, body.eps, body.ep_index,
-        _domain(), body.token, body.tv_name, body.season,
-        body.scheduled_at, year=body.year,
-        audio_languages=body.audio_languages,
-        subtitle_languages=body.subtitle_languages,
-    )
-    return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
-
-
-@router.post("/schedule/anime", status_code=202)
-def schedule_anime(body: AnimeScheduleRequest):
-    job_id = job_manager.schedule_anime_episode(
-        body.anime_id, body.episode.model_dump(), body.anime_name, body.scheduled_at,
-        anime_type=body.anime_type, year=body.year,
-        audio_languages=body.audio_languages,
-        subtitle_languages=body.subtitle_languages,
-    )
-    return {"job_id": job_id, "status": "scheduled", "scheduled_at": body.scheduled_at.isoformat()}
-
-
 # ── Job management ─────────────────────────────────────────────────────────────
-
-@router.post("/{job_id}/fire", status_code=200)
-def fire_now(job_id: str):
-    if job_manager.fire_now(job_id):
-        return {"job_id": job_id, "status": "queued"}
-    raise HTTPException(status_code=404, detail="Job non trovato o non in stato programmato")
-
 
 @router.post("/{job_id}/retry", status_code=200)
 def retry(job_id: str):
@@ -396,7 +328,7 @@ def retry(job_id: str):
 
 @router.delete("/{job_id}", status_code=200)
 def cancel_or_dismiss(job_id: str):
-    """Cancel a running/queued/scheduled job, or dismiss a finished one (also cleans schedule store)."""
+    """Cancel a running or queued job, or dismiss a finished one."""
     if job_manager.dismiss(job_id):
         return {"job_id": job_id, "status": "dismissed"}
     if job_manager.cancel(job_id):
