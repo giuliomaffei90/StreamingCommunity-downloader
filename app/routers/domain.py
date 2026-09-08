@@ -159,7 +159,6 @@ class SettingsUpdate(BaseModel):
 
     max_concurrent_downloads: int | None = None
     max_segment_workers: int | None = None
-    series_watch_interval_minutes: int | None = None
     naming_templates: dict[str, str] | None = None
     domain_auto_check_enabled: bool | None = None
     domain_auto_apply: bool | None = None
@@ -222,7 +221,6 @@ def get_app_settings():
 _SETTING_RANGES = (
     ("max_concurrent_downloads", 1, 32),
     ("max_segment_workers", 1, 128),
-    ("series_watch_interval_minutes", 15, 1440),
     # Floored well above the throttle in domain_recovery: a check any more often
     # than this is hammering somebody else's page for a domain that rotates
     # every few weeks.

@@ -10,104 +10,6 @@ let _jobPhases = {};      // job_id → current phase string
 const _jobs = new Map();  // job_id → job dict (source of truth)
 let _animeCtx = {};       // context for anime episode browser
 
-// ── Session ────────────────────────────────────────────────────────────────────
-
-let _me = null;           // { user, csrf_token, auth_enabled }
-let _csrf = '';
-let _authEnabled = true;  // false when the panel runs without Jellyfin (AUTH_ENABLED=0)
-let _requestStatus = {};  // external_id → { id, status } for the result cards
-
-function can(permission) {
-  return !!_me && _me.user.permission_names.includes(permission);
-}
-
-// Every state-changing call carries the session's CSRF token, and an expired or
-// revoked session lands on the login page instead of failing silently. Wrapping
-// fetch once covers every call site, including the ones written before auth
-// existed.
-const _nativeFetch = window.fetch.bind(window);
-
-function _withCsrfHeader(opts, method) {
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && _csrf) {
-    opts.headers = { ...(opts.headers || {}), 'X-CSRF-Token': _csrf };
-  }
-  return opts;
-}
-
-/** Re-fetch identity and CSRF token without the page-load side effects
- * (nav visibility, header). Returns false if the session itself is gone. */
-async function _refreshIdentity() {
-  const res = await _nativeFetch('/api/auth/me');
-  if (!res.ok) return false;
-  _me = await res.json();
-  _csrf = _me.csrf_token;
-  return true;
-}
-
-window.fetch = async (input, init) => {
-  init = init || {};
-  const method = (init.method || 'GET').toUpperCase();
-  const isAuthCall = String(input).startsWith('/api/auth/');
-
-  let res = await _nativeFetch(input, _withCsrfHeader(init, method));
-
-  // A stale token — typically a tab left open across a newer login elsewhere,
-  // which rotates the (browser-wide) session cookie but leaves this tab's own
-  // in-memory token behind — is safe to recover from: refresh it once and
-  // retry. A real permission-denied 403 carries no such header and falls
-  // through untouched, since refreshing a token would never fix that.
-  if (res.status === 403 && res.headers.get('X-CSRF-Retry') && !isAuthCall) {
-    if (await _refreshIdentity()) {
-      res = await _nativeFetch(input, _withCsrfHeader(init, method));
-    }
-  }
-
-  if (res.status === 401 && !isAuthCall) {
-    window.location.href = '/login';
-  }
-  return res;
-};
-
-async function initAuth() {
-  if (!await _refreshIdentity()) { window.location.href = '/login'; return false; }
-
-  _authEnabled = _me.auth_enabled !== false;
-
-  const initials = (_me.user.username || '?').slice(0, 2).toUpperCase();
-  document.getElementById('user-initials').textContent = initials;
-  document.getElementById('user-name').textContent = _me.user.username;
-  document.getElementById('user-role').textContent = _roleLabel();
-
-  const version = document.getElementById('app-version');
-  if (version) version.textContent = _me.version ? `v${_me.version}` : '';
-
-  // Menu entries follow the permissions. This is cosmetic only — every one of
-  // these endpoints is checked server-side as well.
-  document.querySelectorAll('[data-perm]').forEach(el => {
-    const needed = el.dataset.perm.split('|');
-    el.style.display = needed.some(can) ? '' : 'none';
-  });
-  // Without Jellyfin there is no identity or request queue to show, even for
-  // the one permission (DOWNLOAD) that would otherwise leave them visible.
-  if (!_authEnabled) {
-    document.querySelectorAll('[data-requires-auth]').forEach(el => { el.style.display = 'none'; });
-  }
-  return true;
-}
-
-function _roleLabel() {
-  if (can('MANAGE_USERS') || can('MANAGE_SETTINGS')) return 'Amministratore';
-  if (can('MANAGE_REQUESTS')) return 'Approvatore';
-  if (can('DOWNLOAD')) return 'Download diretto';
-  if (can('REQUEST')) return 'Richieste';
-  return 'Sola lettura';
-}
-
-async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/login';
-}
-
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
 function scConfirm(msg) {
@@ -231,33 +133,15 @@ function showToast(message, type = 'info') {
 // ── Init ───────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-  if (!await initAuth()) return;
-  if (can('REQUEST') || can('DOWNLOAD') || can('MANAGE_SETTINGS')) {
-    await loadDomainStatus();
-    loadDomainCandidate();
-  }
-  if (can('MANAGE_SETTINGS')) await Promise.all([loadLibraries(), loadPerfSettings()]);
-  if (can('DOWNLOAD') || can('MANAGE_REQUESTS')) {
-    connectGlobalStream();
-  } else {
-    // Without access to the job stream there is nothing to push on, so the bell
-    // polls instead. Cheap: one indexed count per minute.
-    setInterval(refreshNotifications, 60000);
-  }
-  if (can('VIEW_LIBRARY')) setupFileManager();
+  await loadDomainStatus();
+  loadDomainCandidate();
+  await Promise.all([loadLibraries(), loadPerfSettings()]);
+  connectGlobalStream();
+  setupFileManager();
   setupSettingsTabs();
   setupSearchDebounce();
-  refreshNotifications();
-  refreshQueueBadge();
-  showPage(defaultPage());
+  showPage('search');
 });
-
-function defaultPage() {
-  if (can('REQUEST') || can('DOWNLOAD')) return 'search';
-  if (can('MANAGE_REQUESTS')) return 'requests';
-  if (can('VIEW_LIBRARY')) return 'files';
-  return 'search';
-}
 
 // ── Domain ─────────────────────────────────────────────────────────────────────
 
@@ -359,380 +243,18 @@ function showPage(page) {
   if (mobileMenu && mobileMenu.classList.contains('show')) {
     mobileMenu.classList.remove('show');
   }
-  ['search','downloads','files','requests','my-requests','watches','users'].forEach(p => {
+  ['search','downloads','files'].forEach(p => {
     const el = document.getElementById(`page-${p}`);
     if (el) el.style.display = p === page ? '' : 'none';
   });
   document.getElementById('page-title').textContent = {
     search:'Cerca', downloads:'Download', files:'File',
-    requests:'Coda richieste', 'my-requests':'Le mie richieste',
-    watches:'Serie seguite', users:'Utenti',
   }[page] || 'Cerca';
   document.querySelectorAll('.nav-link[data-page]').forEach(el =>
     el.classList.toggle('active', el.dataset.page === page));
   if (page === 'downloads') refreshJobs();
   if (page === 'files') loadFiles();
-  if (page === 'requests') loadRequestQueue();
-  if (page === 'my-requests') loadMyRequests();
-  if (page === 'watches') loadWatches();
-  if (page === 'users') loadUsersPage();
 }
-
-// ── Serie seguite ────────────────────────────────────────────────────────────
-
-let _watches = [];
-
-function fmtLastChecked(iso) {
-  if (!iso) return 'mai controllata';
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return 'controllata ora';
-  if (minutes < 60) return `controllata ${minutes} min fa`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `controllata ${hours} h fa`;
-  return `controllata ${Math.round(hours / 24)} g fa`;
-}
-
-async function loadWatches() {
-  const c = document.getElementById('watches-list');
-  if (!c) return;
-  try {
-    // An approver sees every followed series, not only their own: arming a
-    // series is their decision, and they cannot make it on a list that hides
-    // the follows waiting for it.
-    const res = await fetch(can('MANAGE_REQUESTS') ? '/api/watches' : '/api/watches/mine');
-    if (!res.ok) { c.innerHTML = '<p class="text-muted">Impossibile caricare le serie seguite.</p>'; return; }
-    const data = await safeJson(res);
-    _watches = data.watches || [];
-    renderWatchesList();
-  } catch (e) {
-    c.innerHTML = '<p class="text-muted">Errore di rete.</p>';
-  }
-}
-
-function renderWatchesList() {
-  const c = document.getElementById('watches-list');
-  if (!c) return;
-  if (!_watches.length) {
-    c.innerHTML = `<div class="empty-panel">
-      <i class="ti ti-bell-off"></i>
-      <p>Nessuna serie seguita.</p>
-      <p class="text-muted" style="font-size:12px;margin-top:6px">
-        Apri una serie o un anime dalla ricerca e premi «Segui» per scaricare
-        i nuovi episodi appena escono.
-      </p>
-    </div>`;
-    return;
-  }
-  c.innerHTML = _watches.map(w => {
-    // The owner's DOWNLOAD permission is what the poller checks, so a follower
-    // without it must not be told the episode will just appear. An ownerless
-    // watch (no accounts) always downloads: there is no queue to wait in.
-    const auto = w.created_by === null || w.auto_approve ||
-      (!!_me && w.created_by === _me.user.id && can('DOWNLOAD'));
-    const badge = auto
-      ? '<span class="badge bg-green-lt">download automatico</span>'
-      : '<span class="badge bg-yellow-lt">passa dalla coda</span>';
-    const kind = w.media_type === 'anime' ? 'Anime' : 'Serie TV';
-    const audio = w.audio_languages.length ? w.audio_languages.join(', ') : 'originale';
-    // Arming is the approver's decision, and only worth offering where it would
-    // change something: a series that already downloads by itself has nothing
-    // to approve.
-    const canArm = can('MANAGE_REQUESTS') && w.created_by !== null;
-    const armButton = !canArm ? '' : w.auto_approve
-      ? `<button class="btn btn-sm btn-outline-secondary" onclick="setWatchAutoApprove(${w.id}, false)"
-                 title="I nuovi episodi torneranno a passare dalla coda di approvazione">
-           <i class="ti ti-bell-x me-1"></i>Togli automatico
-         </button>`
-      : `<button class="btn btn-sm btn-outline-success" onclick="setWatchAutoApprove(${w.id}, true)"
-                 title="Approva la serie una volta: i nuovi episodi verranno scaricati senza passare dalla coda">
-           <i class="ti ti-bell-check me-1"></i>Approva automatico
-         </button>`;
-    const who = can('MANAGE_REQUESTS') && w.followers && w.followers.length
-      ? `<span class="req-dot">·</span><i class="ti ti-user"></i> ${escapeHtml(w.followers.join(', '))}`
-      : '';
-    return `
-      <div class="req-row">
-        <div class="req-main">
-          <div class="req-title">${escapeHtml(w.title)}${w.year ? ` <span class="text-muted">(${escapeHtml(w.year)})</span>` : ''}</div>
-          <div class="req-meta">
-            <i class="ti ti-device-tv"></i> ${kind}
-            <span class="req-dot">·</span>
-            <i class="ti ti-volume"></i> ${escapeHtml(audio)}
-            <span class="req-dot">·</span>
-            <i class="ti ti-refresh"></i> ${escapeHtml(fmtLastChecked(w.last_checked_at))}
-            ${who}
-          </div>
-        </div>
-        <div class="req-side">
-          ${badge}
-          <div class="req-actions">
-            ${armButton}
-            <button class="btn btn-sm btn-outline-secondary" id="watch-check-${w.id}"
-                    onclick="checkWatchNow(${w.id})"
-                    title="Cerca subito nuovi episodi, senza aspettare il controllo automatico">
-              <i class="ti ti-refresh me-1"></i>Controlla ora
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" onclick="unfollowWatch(${w.id})">
-              <i class="ti ti-bell-off me-1"></i>Non seguire più
-            </button>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-}
-
-// The follow toggle lives in two modals whose contexts are shaped differently,
-// so both are flattened to the same shape here rather than in each caller.
-function _followTarget(kind) {
-  if (kind === 'anime') {
-    return {
-      btnId: 'follow-anime-btn',
-      source: 'animeunity',
-      media_type: 'anime',
-      external_id: String(_animeCtx.animeId ?? ''),
-      title: _animeCtx.animeName,
-      year: _animeCtx.animeYear,
-      anime_type: _animeCtx.animeType,
-      audio_languages: _animeCtx.audioLangs || [],
-      subtitle_languages: _animeCtx.subLangs || [],
-      // A one-shot anime film has no next episode to wait for.
-      followable: (_animeCtx.animeType || 'tv') !== 'movie',
-    };
-  }
-  return {
-    btnId: 'follow-tv-btn',
-    source: 'streamingcommunity',
-    media_type: 'tv',
-    external_id: String(_epCtx.tvId ?? ''),
-    title: _epCtx.tvName,
-    slug: _epCtx.slug,
-    year: _epCtx.year,
-    poster: _epCtx.poster,
-    audio_languages: _epCtx.audioLangs || [],
-    subtitle_languages: _epCtx.subLangs || [],
-    followable: true,
-  };
-}
-
-function _renderFollowButton(kind, following, busy = false) {
-  const target = _followTarget(kind);
-  const btn = document.getElementById(target.btnId);
-  if (!btn) return;
-  // Available with or without Jellyfin: an ownerless watch downloads directly,
-  // the way everything else does when the panel runs without accounts.
-  if (!target.followable || !(can('REQUEST') || can('DOWNLOAD'))) {
-    btn.style.display = 'none';
-    return;
-  }
-  btn.style.display = '';
-  btn.disabled = busy;
-  btn.dataset.following = following ? '1' : '';
-  // No margin utilities: the header is a flex row with a gap, and the title
-  // takes the free space.
-  btn.className = 'btn btn-sm flex-shrink-0 ' + (following ? 'btn-success' : 'btn-outline-secondary');
-  btn.innerHTML = following
-    ? '<i class="ti ti-bell-check me-1"></i>Seguita'
-    : '<i class="ti ti-bell-plus me-1"></i>Segui';
-  btn.title = following
-    ? 'I nuovi episodi vengono cercati automaticamente. Premi per smettere.'
-    : 'Cerca automaticamente i nuovi episodi di questa serie';
-}
-
-async function checkWatchStatus(kind) {
-  const target = _followTarget(kind);
-  if (!target.followable || !target.external_id) { _renderFollowButton(kind, false); return; }
-  try {
-    const params = new URLSearchParams({
-      source: target.source, media_type: target.media_type, external_id: target.external_id,
-    });
-    const res = await fetch(`/api/watches/status?${params}`);
-    if (!res.ok) { _renderFollowButton(kind, false); return; }
-    const data = await safeJson(res);
-    _renderFollowButton(kind, !!data.followed_by_me);
-  } catch (e) { _renderFollowButton(kind, false); }
-}
-
-async function toggleFollowSeries(kind) {
-  const target = _followTarget(kind);
-  const btn = document.getElementById(target.btnId);
-  const following = !!(btn && btn.dataset.following);
-  _renderFollowButton(kind, following, true);
-
-  try {
-    if (following) {
-      const params = new URLSearchParams({
-        source: target.source, media_type: target.media_type, external_id: target.external_id,
-      });
-      const status = await safeJson(await fetch(`/api/watches/status?${params}`));
-      const res = await fetch(`/api/watches/${status.watch_id}`, {method: 'DELETE'});
-      if (!res.ok) throw new Error();
-      _renderFollowButton(kind, false);
-      showToast('Serie non più seguita', 'success');
-    } else {
-      const res = await fetch('/api/watches', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(target),
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        _renderFollowButton(kind, false);
-        showToast(data.detail || 'Impossibile seguire la serie', 'danger');
-        return;
-      }
-      _renderFollowButton(kind, true);
-      // Only true for someone who can start downloads. Without that permission
-      // each new episode becomes a request an approver has to accept, and
-      // saying otherwise sets up a wait for something that never arrives.
-      showToast(can('DOWNLOAD')
-        ? 'Serie seguita: i nuovi episodi arriveranno da soli'
-        : 'Serie seguita: i nuovi episodi verranno richiesti a un amministratore',
-        'success');
-    }
-    if (document.getElementById('page-watches').style.display !== 'none') loadWatches();
-  } catch (e) {
-    _renderFollowButton(kind, following);
-    showToast('Errore di rete', 'danger');
-  }
-}
-
-// The automatic check runs every few hours; this is for when an episode has
-// just dropped and waiting for the next cycle makes no sense.
-async function checkWatchNow(watchId) {
-  const btn = document.getElementById(`watch-check-${watchId}`);
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 ti-spin me-1"></i>Controllo...'; }
-  try {
-    const res = await fetch(`/api/watches/${watchId}/check`, {method: 'POST'});
-    const data = await safeJson(res);
-    if (!res.ok) {
-      showToast(data.detail || 'Controllo fallito', 'danger');
-      return;
-    }
-    if (data.new) {
-      showToast(
-        data.new === 1 ? '1 nuovo episodio trovato' : `${data.new} nuovi episodi trovati`,
-        'success',
-      );
-    } else {
-      showToast('Nessun nuovo episodio', 'info');
-    }
-  } catch (e) {
-    showToast('Errore di rete', 'danger');
-  } finally {
-    // Redraws the row, which also refreshes "controllata ora".
-    await loadWatches();
-  }
-}
-
-// Arming a series before an episode exists, which is the whole point: waiting
-// for the first request means waiting for the source to publish.
-async function setWatchAutoApprove(watchId, enabled) {
-  const watch = _watches.find(w => w.id === watchId);
-  const name = watch ? watch.title : watchId;
-  if (!enabled && !await scConfirm(`I nuovi episodi di «${name}» torneranno in coda. Procedere?`)) return;
-  try {
-    const res = await fetch(`/api/watches/${watchId}/auto-approve`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({enabled}),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) { showToast(data.detail || 'Operazione fallita', 'danger'); return; }
-    showToast(enabled
-      ? `«${name}»: i nuovi episodi verranno scaricati automaticamente`
-      : `«${name}»: i nuovi episodi torneranno in coda`, 'success');
-    await loadWatches();
-  } catch (e) {
-    showToast('Errore di rete', 'danger');
-  }
-}
-
-async function unfollowWatch(watchId) {
-  const watch = _watches.find(w => w.id === watchId);
-  if (!await scConfirm(`Smettere di seguire «${watch ? watch.title : watchId}»?`)) return;
-  try {
-    const res = await fetch(`/api/watches/${watchId}`, {method: 'DELETE'});
-    if (!res.ok) { showToast('Errore', 'danger'); return; }
-    showToast('Serie non più seguita', 'success');
-    await loadWatches();
-  } catch (e) { showToast('Errore di rete', 'danger'); }
-}
-
-// ── Vocabolario notifiche ────────────────────────────────────────────────────
-//
-// Mirrors notify.ALL_EVENTS on the server. The bell reads the icons; the
-// per-channel picker in Impostazioni reads the labels and the grouping.
-
-const NOTIFICATION_ICONS = {
-  request_created: 'ti-inbox',
-  request_joined: 'ti-users',
-  request_approved: 'ti-circle-check',
-  request_denied: 'ti-circle-x',
-  request_downloading: 'ti-download',
-  request_completed: 'ti-device-tv',
-  request_failed: 'ti-alert-triangle',
-  request_needs_attention: 'ti-alert-circle',
-  request_available: 'ti-library',
-  download_completed: 'ti-circle-check',
-  download_failed: 'ti-alert-triangle',
-  download_batch_completed: 'ti-checkbox',
-  download_batch_failed: 'ti-alert-octagon',
-  watch_needs_approval: 'ti-bell-question',
-  watch_auto_approved: 'ti-bell-check',
-  source_domain_found: 'ti-world-search',
-  source_domain_applied: 'ti-world-check',
-  hook_failed: 'ti-webhook-off',
-};
-
-const NOTIFICATION_LABELS = {
-  request_created: 'Nuova richiesta',
-  request_joined: 'Richiesta già presente',
-  request_approved: 'Richiesta approvata',
-  request_denied: 'Richiesta rifiutata',
-  request_downloading: 'Richiesta in download',
-  request_completed: 'Richiesta completata',
-  request_failed: 'Richiesta fallita',
-  request_needs_attention: 'Richiesta da verificare',
-  request_available: 'Già in libreria',
-  download_completed: 'Download completato',
-  download_failed: 'Download fallito',
-  download_batch_completed: 'Stagione o serie completata',
-  download_batch_failed: 'Stagione o serie fallita',
-  watch_needs_approval: 'Serie seguita da approvare',
-  watch_auto_approved: 'Serie approvata',
-  source_domain_found: 'Nuovo dominio trovato',
-  source_domain_applied: 'Dominio aggiornato',
-  hook_failed: 'Hook fallito',
-};
-
-// Explicit order, so the picker does not depend on object key order.
-const NOTIFICATION_EVENT_GROUPS = [
-  {
-    label: 'Richieste',
-    events: ['request_created', 'request_joined', 'request_approved', 'request_denied',
-             'request_downloading', 'request_completed', 'request_failed',
-             'request_needs_attention', 'request_available'],
-  },
-  {
-    label: 'Download diretti',
-    events: ['download_completed', 'download_failed',
-             'download_batch_completed', 'download_batch_failed'],
-  },
-  {
-    label: 'Serie seguite',
-    events: ['watch_needs_approval', 'watch_auto_approved'],
-  },
-  {
-    label: 'Sorgente',
-    events: ['source_domain_found', 'source_domain_applied'],
-  },
-  {
-    label: 'Hook',
-    events: ['hook_failed'],
-  },
-];
-
-const ALL_NOTIFICATION_EVENTS = NOTIFICATION_EVENT_GROUPS.flatMap(g => g.events);
 
 // ── Settings ───────────────────────────────────────────────────────────────────
 
@@ -740,9 +262,7 @@ const ALL_NOTIFICATION_EVENTS = NOTIFICATION_EVENT_GROUPS.flatMap(g => g.events)
 // own feedback line rather than sharing one status area.
 const _SETTINGS_FEEDBACK_IDS = [
   'domain-feedback', 'libraries-feedback', 'perf-settings-feedback',
-  'jf-connect-feedback', 'jf-reconnect-feedback', 'notif-channels-feedback',
-  'domain-recovery-feedback',
-  'jf-refresh-feedback', 'hooks-feedback', 'naming-feedback',
+  'domain-recovery-feedback', 'hooks-feedback', 'naming-feedback',
 ];
 
 // FastAPI answers a validation failure with an *array* of error objects, so the
@@ -771,9 +291,7 @@ const _SETTINGS_TAB_LOADERS = {
   sorgente: () => loadDomainRecoverySettings(),
   nomi: () => loadNamingTemplates(),
   download: () => loadPerfSettings(),
-  accesso: () => loadJellyfinSettings(),
-  notifiche: () => loadNotificationChannels(),
-  hook: () => Promise.all([loadJellyfinRefresh(), loadHooks()]),
+  hook: () => loadHooks(),
 };
 
 // Two panes read the same endpoint. Shared per modal-open so switching between
@@ -791,8 +309,6 @@ function _loadAppSettings() {
 
 // Tabs whose panes only talk to MANAGE_SETTINGS endpoints: without it they would
 // render as empty panes fed by 403s.
-const _SETTINGS_TABS_NEED_MANAGE = ['sorgente', 'librerie', 'nomi', 'download', 'notifiche', 'hook'];
-
 let _settingsTab = 'sorgente';
 const _settingsLoaded = new Set();
 
@@ -834,12 +350,6 @@ async function openSettings() {
   document.getElementById('domain-input').value = currentDomain;
   _SETTINGS_FEEDBACK_IDS.forEach(id => _feedback(id));
   renderLibrariesList();
-
-  const manage = can('MANAGE_SETTINGS');
-  document.querySelectorAll('#settings-tabs [data-settings-tab]').forEach(a => {
-    const restricted = _SETTINGS_TABS_NEED_MANAGE.includes(a.dataset.settingsTab);
-    a.closest('.nav-item').style.display = restricted && !manage ? 'none' : '';
-  });
 
   // Cleared on every open so a value changed elsewhere is picked up; within one
   // open, moving between tabs does not refetch.
@@ -895,302 +405,11 @@ function renderDiskUsage(data) {
   el.title = worst.paths.join('\n');
 }
 
-// ── Canali di notifica (Apprise) ─────────────────────────────────────────────
-
-let _notifChannels = [];
-
-async function loadNotificationChannels() {
-  try {
-    const res = await fetch('/api/notification-channels');
-    if (!res.ok) return;
-    const data = await safeJson(res);
-    _notifChannels = data.channels || [];
-    renderNotificationChannelsList();
-  } catch (e) { console.error('loadNotificationChannels:', e); }
-}
-
-// The URL carries the bot token, so the list shows only enough of it to tell two
-// channels apart. The full value stays behind the MANAGE_SETTINGS endpoint.
-function _maskAppriseUrl(url) {
-  const scheme = url.split('://')[0];
-  return `${scheme}://…${url.slice(-4)}`;
-}
-
-// Which channels have their event picker open. Kept outside the render so
-// rebuilding the list does not collapse what the user was editing.
-const _expandedChannels = new Set();
-
-// An empty list means "every event" on the server, so the picker needs a master
-// switch: without it, unchecking the last box would silently mean the opposite
-// of what it looks like.
-function _eventSummary(ch) {
-  if (!ch.events.length) return 'Tutti gli eventi';
-  return ch.events.length === 1 ? '1 evento' : `${ch.events.length} eventi`;
-}
-
-function _renderEventPicker(ch) {
-  const all = ch.events.length === 0;
-  const groups = NOTIFICATION_EVENT_GROUPS.map(group => {
-    const boxes = group.events.map(event => `
-      <label class="form-check form-check-inline" style="min-width:200px">
-        <input class="form-check-input" type="checkbox" value="${event}"
-               data-channel="${ch.id}"
-               ${all || ch.events.includes(event) ? 'checked' : ''}
-               ${all ? 'disabled' : ''}
-               onchange="updateChannelEvents(${ch.id})">
-        <span class="form-check-label" style="font-size:12px">
-          <i class="ti ${NOTIFICATION_ICONS[event] || 'ti-bell'} me-1"></i>${NOTIFICATION_LABELS[event]}
-        </span>
-      </label>`).join('');
-    return `
-      <div class="mb-2">
-        <p class="settings-section-label mb-1">${group.label}</p>
-        ${boxes}
-      </div>`;
-  }).join('');
-
-  return `
-    <div class="ps-4 pb-2" id="notif-events-${ch.id}">
-      <label class="form-check form-switch mb-2">
-        <input class="form-check-input" type="checkbox" ${all ? 'checked' : ''}
-               id="notif-all-events-${ch.id}"
-               onchange="toggleAllChannelEvents(${ch.id}, this.checked)">
-        <span class="form-check-label" style="font-size:12px">Tutti gli eventi</span>
-      </label>
-      ${groups}
-    </div>`;
-}
-
-function renderNotificationChannelsList() {
-  const c = document.getElementById('notif-channels-list');
-  if (!c) return;
-  if (!_notifChannels.length) {
-    c.innerHTML = '<p class="text-muted small mb-0">Nessun canale configurato.</p>';
-    return;
-  }
-  c.innerHTML = _notifChannels.map(ch => {
-    const open = _expandedChannels.has(ch.id);
-    return `
-    <div class="border-bottom pb-1 mb-1">
-      <div class="d-flex align-items-center gap-2 py-1">
-        <label class="form-check form-switch mb-0">
-          <input class="form-check-input" type="checkbox" ${ch.enabled ? 'checked' : ''}
-                 onchange="toggleNotificationChannel(${ch.id}, this.checked)">
-        </label>
-        <div class="flex-fill text-truncate">
-          <span style="color:var(--text)">${escapeHtml(ch.name)}</span>
-          <span class="text-muted small ms-2">${escapeHtml(_maskAppriseUrl(ch.apprise_url))}</span>
-        </div>
-        <button type="button" class="btn btn-sm btn-ghost-secondary"
-                onclick="toggleChannelEvents(${ch.id})" title="Scegli quali notifiche ricevere">
-          <i class="ti ti-${open ? 'chevron-up' : 'chevron-down'} me-1"></i>${_eventSummary(ch)}
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="testNotificationChannel(${ch.id})">
-          <i class="ti ti-send me-1"></i>Test
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteNotificationChannel(${ch.id})">
-          <i class="ti ti-trash"></i>
-        </button>
-      </div>
-      ${open ? _renderEventPicker(ch) : ''}
-    </div>`;
-  }).join('');
-}
-
-function toggleChannelEvents(id) {
-  if (_expandedChannels.has(id)) _expandedChannels.delete(id);
-  else _expandedChannels.add(id);
-  renderNotificationChannelsList();
-}
-
-function _checkedEvents(id) {
-  return [...document.querySelectorAll(`#notif-events-${id} input[data-channel="${id}"]`)]
-    .filter(box => box.checked).map(box => box.value);
-}
-
-async function toggleAllChannelEvents(id, all) {
-  // Turning "all" off pre-selects everything, so the user removes what they do
-  // not want rather than starting from nothing.
-  await _saveChannelEvents(id, all ? [] : ALL_NOTIFICATION_EVENTS.slice());
-}
-
-async function updateChannelEvents(id) {
-  const chosen = _checkedEvents(id);
-  if (!chosen.length) {
-    // [] would be stored as "every event" — the opposite of an empty selection.
-    _feedback('notif-channels-feedback', 'Seleziona almeno un evento, oppure attiva «Tutti gli eventi».', 'danger');
-    renderNotificationChannelsList();
-    return;
-  }
-  await _saveChannelEvents(id, chosen);
-}
-
-async function _saveChannelEvents(id, events) {
-  try {
-    const res = await fetch(`/api/notification-channels/${id}`, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({events}),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      _feedback('notif-channels-feedback', data.detail || 'Errore aggiornamento eventi.', 'danger');
-      await loadNotificationChannels();
-      return;
-    }
-    // Patched locally instead of refetching: a full reload would rebuild the
-    // open picker under the cursor while the user is still clicking.
-    const channel = _notifChannels.find(c => c.id === id);
-    if (channel) channel.events = data.events || [];
-    _feedback('notif-channels-feedback', 'Eventi aggiornati.', 'success');
-    renderNotificationChannelsList();
-  } catch (e) {
-    _feedback('notif-channels-feedback', 'Errore di rete.', 'danger');
-  }
-}
-
-function toggleNotificationChannelForm() {
-  const form = document.getElementById('notif-channel-form');
-  form.style.display = form.style.display === 'none' ? '' : 'none';
-}
-
-async function saveNotificationChannel() {
-  const btn = document.getElementById('notif-channel-save-btn');
-  const nameEl = document.getElementById('notif-channel-name');
-  const urlEl = document.getElementById('notif-channel-url');
-  const name = nameEl.value.trim();
-  const apprise_url = urlEl.value.trim();
-  if (!name || !apprise_url) {
-    _feedback('notif-channels-feedback', 'Compila nome e URL.', 'danger');
-    return;
-  }
-  btn.disabled = true;
-  _feedback('notif-channels-feedback', 'Salvataggio...');
-  try {
-    const res = await fetch('/api/notification-channels', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name, apprise_url}),
-    });
-    if (res.ok) {
-      nameEl.value = '';
-      urlEl.value = '';
-      document.getElementById('notif-channel-form').style.display = 'none';
-      _feedback('notif-channels-feedback', 'Canale aggiunto.', 'success');
-      await loadNotificationChannels();
-    } else {
-      const d = await safeJson(res);
-      _feedback('notif-channels-feedback', d.detail || 'Errore salvataggio.', 'danger');
-    }
-  } catch (e) { _feedback('notif-channels-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
-}
-
-async function toggleNotificationChannel(id, enabled) {
-  try {
-    const res = await fetch(`/api/notification-channels/${id}`, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({enabled}),
-    });
-    if (!res.ok) throw new Error();
-    _feedback('notif-channels-feedback', enabled ? 'Canale attivo.' : 'Canale disattivato.', 'success');
-    await loadNotificationChannels();
-  } catch (e) {
-    _feedback('notif-channels-feedback', 'Errore aggiornamento.', 'danger');
-    await loadNotificationChannels();
-  }
-}
-
-async function deleteNotificationChannel(id) {
-  const channel = _notifChannels.find(c => c.id === id);
-  if (!await scConfirm(`Eliminare il canale «${channel ? channel.name : id}»?`)) return;
-  try {
-    const res = await fetch(`/api/notification-channels/${id}`, {method: 'DELETE'});
-    if (!res.ok) throw new Error();
-    _feedback('notif-channels-feedback', 'Canale eliminato.', 'success');
-    await loadNotificationChannels();
-  } catch (e) { _feedback('notif-channels-feedback', 'Errore eliminazione.', 'danger'); }
-}
-
-async function testNotificationChannel(id) {
-  _feedback('notif-channels-feedback', 'Invio notifica di test...');
-  try {
-    const res = await fetch(`/api/notification-channels/${id}/test`, {method: 'POST'});
-    const data = await safeJson(res);
-    if (res.ok && data.ok) {
-      _feedback('notif-channels-feedback', 'Notifica di test inviata.', 'success');
-      showToast('Notifica di test inviata', 'success');
-    } else {
-      _feedback('notif-channels-feedback', data.detail || 'Invio fallito: controlla la URL.', 'danger');
-    }
-  } catch (e) { _feedback('notif-channels-feedback', 'Errore di rete.', 'danger'); }
-}
-
-// ── Jellyfin connection ──────────────────────────────────────────────────────
-
-async function loadJellyfinSettings() {
-  try {
-    const res = await fetch('/api/auth/status');
-    const data = await safeJson(res);
-    const connected = !!data.jellyfin_url;
-    document.getElementById('jf-not-connected').style.display = connected ? 'none' : '';
-    document.getElementById('jf-connected').style.display = connected ? '' : 'none';
-    if (connected) {
-      document.getElementById('jf-connected-url').textContent = data.jellyfin_url;
-      document.getElementById('jf-reconfigure-wrap').style.display = can('MANAGE_USERS') ? '' : 'none';
-    }
-  } catch (e) { console.error('loadJellyfinSettings:', e); }
-}
-
-function toggleJellyfinReconfigure() {
-  const form = document.getElementById('jf-reconfigure-form');
-  form.style.display = form.style.display === 'none' ? '' : 'none';
-}
-
-async function connectJellyfin(reconfigure) {
-  const prefix = reconfigure ? 'jf-reconf-' : 'jf-';
-  const btn = document.getElementById(reconfigure ? 'jf-reconnect-btn' : 'jf-connect-btn');
-  const fbId = reconfigure ? 'jf-reconnect-feedback' : 'jf-connect-feedback';
-  const url = document.getElementById(prefix + 'url').value.trim();
-  const username = document.getElementById(prefix + 'username').value.trim();
-  const password = document.getElementById(prefix + 'password').value;
-  if (!url || !username) {
-    _feedback(fbId, 'Compila URL e utente amministratore.', 'danger');
-    return;
-  }
-
-  btn.disabled = true;
-  _feedback(fbId, 'Connessione...');
-  try {
-    const res = await fetch('/api/auth/jellyfin-connect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, username, password }),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      _feedback(fbId, data.detail || 'Collegamento fallito.', 'danger');
-      btn.disabled = false;
-      return;
-    }
-    // A full reload re-runs initAuth() against the now-real permission set,
-    // which is simpler than patching _me and the nav in place.
-    _feedback(fbId, 'Collegato. Ricaricamento...', 'success');
-    window.location.reload();
-  } catch (e) {
-    _feedback(fbId, 'Errore di rete.', 'danger');
-    btn.disabled = false;
-  }
-}
-
 async function loadPerfSettings() {
   const data = await _loadAppSettings();
   if (!data) return;
   document.getElementById('setting-max-concurrent').value = data.max_concurrent_downloads ?? 3;
   document.getElementById('setting-max-workers').value = data.max_segment_workers ?? 16;
-  document.getElementById('setting-watch-interval').value =
-    data.series_watch_interval_minutes ?? 240;
 }
 
 async function loadDomainRecoverySettings() {
@@ -1330,57 +549,12 @@ const HOOK_EVENT_LABELS = {
   cancelled: 'Annullato',
 };
 
-async function loadJellyfinRefresh() {
-  const data = await _loadAppSettings();
-  if (!data) return;
-  document.getElementById('jf-refresh-on-download').checked =
-    !!data.jellyfin_refresh_on_download;
-
-}
-
-// Set from the hooks payload, which reports whether the refresh has credentials
-// to use. Inferring it from the auth status would report an installation that
-// skipped the wizard and connected Jellyfin later as unconnected.
-function renderJellyfinRefreshAvailability(connected) {
-  const toggle = document.getElementById('jf-refresh-on-download');
-  if (!toggle) return;
-  toggle.disabled = !connected;
-  document.getElementById('jf-refresh-status').textContent = connected
-    ? ''
-    : 'Jellyfin non è collegato: collegalo da Accesso e utenti perché questa opzione abbia effetto.';
-}
-
-async function saveJellyfinRefresh() {
-  const btn = document.getElementById('save-jf-refresh-btn');
-  btn.disabled = true;
-  _feedback('jf-refresh-feedback', 'Salvataggio...');
-  try {
-    const res = await fetch('/api/domain/settings', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        jellyfin_refresh_on_download:
-          document.getElementById('jf-refresh-on-download').checked,
-      }),
-    });
-    if (res.ok) {
-      _feedback('jf-refresh-feedback', 'Salvato.', 'success');
-      showToast('Impostazione salvata', 'success');
-    } else {
-      const d = await safeJson(res);
-      _feedback('jf-refresh-feedback', d.detail || 'Errore salvataggio.', 'danger');
-    }
-  } catch (e) { _feedback('jf-refresh-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
-}
-
 async function loadHooks() {
   try {
     const res = await fetch('/api/download-hooks');
     if (!res.ok) return;
     const data = await safeJson(res);
     _hooks = data.hooks || [];
-    renderJellyfinRefreshAvailability(!!data.jellyfin_connected);
     renderHooksList();
   } catch (e) { /* the list simply stays as it was */ }
 }
@@ -1572,8 +746,7 @@ async function savePerfSettings() {
   const btn = document.getElementById('save-perf-btn');
   const concurrent = parseInt(document.getElementById('setting-max-concurrent').value, 10);
   const workers = parseInt(document.getElementById('setting-max-workers').value, 10);
-  const watchInterval = parseInt(document.getElementById('setting-watch-interval').value, 10);
-  if (!concurrent || !workers || !watchInterval) {
+  if (!concurrent || !workers) {
     _feedback('perf-settings-feedback', 'Valori non validi.', 'danger'); return;
   }
   btn.disabled = true;
@@ -1585,7 +758,6 @@ async function savePerfSettings() {
       body: JSON.stringify({
         max_concurrent_downloads: concurrent,
         max_segment_workers: workers,
-        series_watch_interval_minutes: watchInterval,
       }),
     });
     if (res.ok) {
@@ -1783,7 +955,6 @@ async function doSearch() {
       container.appendChild(card);
     });
     _searchResults = results;
-    loadRequestStatuses(results.filter(r => r.type !== 'movie').map(r => String(r.id)));
   } catch(e) {
     if (e.name === 'AbortError') return; // cancelled by new search
     const container = document.getElementById('search-results');
@@ -1791,46 +962,6 @@ async function doSearch() {
   } finally {
     btn.disabled=false; btn.innerHTML='<i class="ti ti-search me-1"></i>Cerca';
   }
-}
-
-// ── Request status on the result cards ─────────────────────────────────────────
-//
-// The one thing worth taking from Seerr: the state of a title is readable on the
-// card itself, without opening anything.
-
-const STATUS_RIBBONS = {
-  pending:         { label: 'Richiesto',    cls: 'ribbon-pending',   icon: 'ti-clock' },
-  approved:        { label: 'Approvato',    cls: 'ribbon-approved',  icon: 'ti-check' },
-  downloading:     { label: 'In download',  cls: 'ribbon-download',  icon: 'ti-download' },
-  completed:       { label: 'Disponibile',  cls: 'ribbon-available', icon: 'ti-circle-check' },
-  available:       { label: 'Disponibile',  cls: 'ribbon-available', icon: 'ti-circle-check' },
-  denied:          { label: 'Rifiutato',    cls: 'ribbon-denied',    icon: 'ti-x' },
-  failed:          { label: 'Fallito',      cls: 'ribbon-denied',    icon: 'ti-alert-triangle' },
-  needs_attention: { label: 'Attenzione',   cls: 'ribbon-attention', icon: 'ti-alert-circle' },
-  cancelled:       { label: 'Annullato',    cls: 'ribbon-denied',    icon: 'ti-ban' },
-};
-
-async function loadRequestStatuses(externalIds) {
-  if (!externalIds.length || !(can('REQUEST') || can('DOWNLOAD'))) return;
-  try {
-    const res = await fetch('/api/requests/status', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: currentSource, external_ids: externalIds }),
-    });
-    if (!res.ok) return;
-    _requestStatus = await res.json();
-    renderRequestRibbons();
-  } catch (e) { /* the cards simply stay plain */ }
-}
-
-function renderRequestRibbons() {
-  document.querySelectorAll('[data-ribbon-for]').forEach(el => {
-    const info = _requestStatus[el.dataset.ribbonFor];
-    const style = info && STATUS_RIBBONS[info.status];
-    if (!style) { el.innerHTML = ''; el.className = 'status-ribbon'; return; }
-    el.className = `status-ribbon ${style.cls}`;
-    el.innerHTML = `<i class="ti ${style.icon}"></i>${style.label}`;
-  });
 }
 
 // ── Detail Modal ───────────────────────────────────────────────────────────────
@@ -1974,11 +1105,11 @@ function openDetailModal(idx) {
   scheduledAtInput.value = '';
   // Scheduling a download is part of the download privilege; a requester picks
   // tracks and the approver decides when it runs.
-  scheduleWrap.style.display = can('DOWNLOAD') ? '' : 'none';
+  scheduleWrap.style.display = '';
 
-  const requestOnly = !can('DOWNLOAD');
+  const requestOnly = false;
   const btn = document.getElementById('detail-action-btn');
-  const readAt = () => (can('DOWNLOAD') && scheduledAtInput.value)
+  const readAt = () => (scheduledAtInput.value)
     ? new Date(scheduledAtInput.value).toISOString() : null;
 
   if (isAnime) {
@@ -2062,44 +1193,9 @@ function openDetailModal(idx) {
     });
 }
 
-// ── Requesting ─────────────────────────────────────────────────────────────────
-
-// Same form, different action: without the download permission the choice of
-// audio and subtitles becomes a request instead of a job.
-async function submitRequest(payload, label) {
-  try {
-    const res = await fetch('/api/requests', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) { showToast(data.detail || 'Errore', 'danger'); return false; }
-
-    const status = data.request.status;
-    if (status === 'available') showToast(`${label} è già in libreria.`, 'info');
-    else if (!data.created) showToast(`${label} era già stato richiesto: sarai avvisato.`, 'info');
-    else showToast(`Richiesta inviata: ${label}`, 'success');
-
-    _requestStatus[String(payload.external_id)] = { id: data.request.id, status };
-    renderRequestRibbons();
-    refreshNotifications();
-    return true;
-  } catch (e) { showToast('Errore di rete', 'danger'); return false; }
-}
-
 // ── Film download ──────────────────────────────────────────────────────────────
 
 async function startFilmDownload(id, title, year=null, scheduledAt=null, audioLangs=null, subLangs=null, poster=null) {
-  if (!can('DOWNLOAD')) {
-    const ok = await submitRequest({
-      source: currentSource, media_type: 'film', external_id: String(id),
-      title, year, poster,
-      audio_languages: audioLangs || ['ita'],
-      subtitle_languages: subLangs || [],
-    }, title);
-    if (ok) showPage('my-requests');
-    return;
-  }
   try {
     const endpoint = scheduledAt ? '/api/download/schedule/film' : '/api/download/film';
     const body = {
@@ -2216,17 +1312,6 @@ async function startEpisodeDownload(epIndex) {
   const { tvId, tvName, slug, year, scheduledAt, token, episodes, currentSeason, audioLangs, subLangs, poster } = _epCtx;
   const ep = episodes[epIndex];
   const label = `${tvName} S${String(currentSeason).padStart(2,'0')}E${String(ep.n).padStart(2,'0')}`;
-
-  if (!can('DOWNLOAD')) {
-    await submitRequest({
-      source: 'streamingcommunity', media_type: 'episode', external_id: String(tvId),
-      slug, title: tvName, year, poster,
-      season: currentSeason, episode_number: String(ep.n),
-      audio_languages: audioLangs || ['ita'],
-      subtitle_languages: subLangs || [],
-    }, label);
-    return;
-  }
 
   const endpoint = scheduledAt ? '/api/download/schedule/episode' : '/api/download/episode';
   const body = {
@@ -2388,17 +1473,6 @@ async function startAnimeDownload(epIndex) {
   const episode = episodes[epIndex];
   const label = `${animeName} E${episode.number}`;
 
-  if (!can('DOWNLOAD')) {
-    await submitRequest({
-      source: 'animeunity', media_type: 'anime', external_id: String(animeId),
-      title: animeName, year: animeYear, anime_type: animeType,
-      episode_number: String(episode.number),
-      audio_languages: audioLangs || ['ita'],
-      subtitle_languages: subLangs || [],
-    }, label);
-    return;
-  }
-
   const endpoint = scheduledAt ? '/api/download/schedule/anime' : '/api/download/anime';
   const body = {
     anime_id: animeId, episode, anime_name: animeName, anime_type: animeType, year: animeYear,
@@ -2499,12 +1573,6 @@ function connectGlobalStream() {
       case 'notification':
         // A bare signal: the payload lives behind /api/notifications, which is
         // scoped to the caller, so a shared stream leaks nothing.
-        refreshNotifications();
-        refreshQueueBadge();
-        if (can('MANAGE_REQUESTS') &&
-            document.getElementById('page-requests').style.display !== 'none') {
-          loadRequestQueue();
-        }
         break;
     }
   };
