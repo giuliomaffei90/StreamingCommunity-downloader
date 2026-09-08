@@ -372,6 +372,8 @@ class JobManager:
             del self._jobs[job_id]
         if self._schedule_store is not None:
             self._schedule_store.remove_by_job_id(job_id)
+        from app import history
+        history.forget(job_id)
         self._broadcast({"type": "job_dismissed", "job_id": job_id})
         return True
 
@@ -413,6 +415,8 @@ class JobManager:
                         shutil.rmtree(tmp_path, ignore_errors=True)
                         logger.info("Cleaned up temp dir: %s", tmp_path)
         finally:
+            from app import history
+            history.record(job)
             self._notify_listeners(job)
 
     def _maybe_transcode(self, job: "DownloadJob", result):
@@ -430,9 +434,13 @@ class JobManager:
         self._emit(job, {"type": "status", "phase": "transcoding"})
         return transcode.transcode(result, cancel_event=job.cancel_event)
 
-    def _submit_job(self, job: DownloadJob, fn, *args, **kwargs) -> str:
+    def _submit_job(self, job: DownloadJob, fn, *args, call_type: str = None,
+                    params: dict = None, **kwargs) -> str:
         with self._lock:
             self._jobs[job.job_id] = job
+        if call_type is not None:
+            from app import history
+            history.record(job, call_type=call_type, params=params)
         self._broadcast({"type": "job_created", "job": self._job_to_dict(job)})
         self._executor.submit(self._run_download, job, fn, *args, **kwargs)
         return job.job_id
@@ -484,6 +492,13 @@ class JobManager:
             subtitle_languages=subtitle_languages or ["ita", "eng"],
             strict_audio=strict_audio,
             tmdb_id=tmdb_id,
+            call_type="film",
+            params={
+                "id": id_film, "title": title, "domain": domain, "year": year,
+                "audio_languages": audio_languages or ["ita"],
+                "subtitle_languages": subtitle_languages or ["ita", "eng"],
+                "tmdb_id": tmdb_id,
+            },
         )
 
     def submit_episode(self, tv_id: int, eps: list[dict], ep_index: int, domain: str,
@@ -514,6 +529,15 @@ class JobManager:
             subtitle_languages=subtitle_languages or ["ita", "eng"],
             strict_audio=strict_audio,
             tmdb_id=tmdb_id,
+            call_type="episode",
+            params={
+                "tv_id": tv_id, "eps": eps, "ep_index": ep_index,
+                "domain": domain, "token": token, "tv_name": tv_name,
+                "season": season, "year": year,
+                "audio_languages": audio_languages or ["ita"],
+                "subtitle_languages": subtitle_languages or ["ita", "eng"],
+                "tmdb_id": tmdb_id,
+            },
         )
 
     # AnimeUnity deliberately gains no tmdb_id: an anime here has no TMDB
@@ -545,6 +569,13 @@ class JobManager:
             audio_languages=audio_languages or ["ita"],
             subtitle_languages=subtitle_languages or ["ita", "eng"],
             strict_audio=strict_audio,
+            call_type="anime",
+            params={
+                "anime_id": anime_id, "episode": episode, "anime_name": anime_name,
+                "anime_type": anime_type, "year": year,
+                "audio_languages": audio_languages or ["ita"],
+                "subtitle_languages": subtitle_languages or ["ita", "eng"],
+            },
         )
 
     # ── Schedule (future) ──────────────────────────────────────────────────────
@@ -621,6 +652,41 @@ class JobManager:
         self._schedule_store.set_job_id(schedule_id, job.job_id)
         self._broadcast({"type": "job_created", "job": self._job_to_dict(job)})
         return job.job_id
+
+    def restore_from_history(self):
+        """Bring back what the previous run left unfinished, as failed jobs.
+
+        Nothing is resumed — a half-written download is not something to pick up
+        mid-stream. The point is that it stops disappearing: it comes back in
+        the list saying it was interrupted, with the call rebuilt from the
+        recorded parameters so Riprova works on it like on any other failure.
+        """
+        from app import history
+
+        for entry in history.close_interrupted():
+            call_type, params = entry.get("call_type"), entry.get("params")
+            job = DownloadJob(
+                job_id=entry["job_id"],
+                title=entry.get("title") or "?",
+                type=entry.get("type") or "film",
+                status="error",
+                created_at=datetime.now(timezone.utc),
+                error=entry.get("error") or "Interrotto",
+                media_label=entry.get("media_label"),
+                year=entry.get("year"),
+                season=entry.get("season"),
+                episode_number=entry.get("episode_number"),
+            )
+            if call_type and params:
+                try:
+                    job.call = self._build_call(call_type, params, job)
+                except Exception:
+                    # A recorded shape this version no longer builds: the entry
+                    # is still worth showing, it just cannot be retried.
+                    logger.exception("Cannot rebuild %s from history", entry["job_id"])
+            with self._lock:
+                self._jobs[job.job_id] = job
+            logger.info("Restored interrupted download %s (%s)", job.job_id, job.title)
 
     def load_scheduled_from_store(self):
         """Re-hydrate pending scheduled entries from the JSON store on startup."""

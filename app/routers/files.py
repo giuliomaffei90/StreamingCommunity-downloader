@@ -102,14 +102,53 @@ def _is_media(path: Path) -> bool:
     return path.suffix.lower() in _MEDIA_SUFFIXES
 
 
-def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
+def _own_files() -> set[str]:
+    """Resolved paths this app downloaded, plus their subtitle sidecars.
+
+    An empty ledger means an empty tab, deliberately. The download folder is
+    routinely one the user already keeps things in, so "every video under it"
+    answers a different question than "what did I download" — and a tab that
+    shows everything until the first download, then suddenly shows almost
+    nothing, is harder to trust than one that only ever shows its own work.
+    Files that predate the ledger are not listed; they are still on disk and
+    still in the Finder.
+    """
+    from app import history
+
+    paths = set()
+    stems = set()
+    for raw in history.produced_paths():
+        try:
+            resolved = Path(raw).resolve()
+        except OSError:
+            continue
+        paths.add(str(resolved))
+        stems.add(str(resolved.with_suffix("")))
+    # Subtitles are written beside the video and share its stem; they are part
+    # of the same download even though no job returned their path.
+    for stem in stems:
+        for suffix in (".vtt", ".srt", ".ass", ".sub"):
+            paths.add(stem + suffix)
+    return paths
+
+
+def _wanted(item: Path, own: set[str]) -> bool:
+    if not _is_media(item):
+        return False
+    try:
+        return str(item.resolve()) in own
+    except OSError:
+        return False
+
+
+def _build_tree(directory: Path, base: Path, excluded: set, own: set[str] | None = None) -> list[dict]:
     entries = []
     try:
         for item in sorted(directory.iterdir()):
             if item.name in excluded:
                 continue
             if item.is_dir():
-                children = _build_tree(item, base, excluded)
+                children = _build_tree(item, base, excluded, own)
                 # A directory with no media anywhere beneath it is somebody
                 # else's folder, not a download: drop it rather than show it
                 # empty.
@@ -122,7 +161,7 @@ def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
                     "children": children,
                     "empty": False,
                 })
-            elif item.is_file() and _is_media(item):
+            elif item.is_file() and _wanted(item, own):
                 stat = item.stat()
                 entries.append({
                     "name": item.name,
@@ -140,7 +179,7 @@ def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
 _DEFAULT_EXCLUDED = {"images", "snippets", "lost+found"}
 
 
-def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list[dict]:
+def _search_tree(directory: Path, base: Path, query: str, excluded: set, own: set[str] | None = None) -> list[dict]:
     results = []
     try:
         for item in sorted(directory.iterdir()):
@@ -153,7 +192,7 @@ def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list
                         "type": "directory",
                         "path": str(item.relative_to(base)),
                     })
-                elif item.is_file() and _is_media(item):
+                elif item.is_file() and _wanted(item, own):
                     stat = item.stat()
                     results.append({
                         "name": item.name,
@@ -163,7 +202,7 @@ def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list
                         "mtime": stat.st_mtime,
                     })
             if item.is_dir():
-                results.extend(_search_tree(item, base, query, excluded))
+                results.extend(_search_tree(item, base, query, excluded, own))
     except PermissionError:
         pass
     return results
@@ -176,7 +215,7 @@ async def search_files(q: str):
     if not download_dir().exists():
         return []
     excluded = _DEFAULT_EXCLUDED
-    return await asyncio.to_thread(_search_tree, download_dir(), download_dir(), q.strip().lower(), excluded)
+    return await asyncio.to_thread(_search_tree, download_dir(), download_dir(), q.strip().lower(), excluded, _own_files())
 
 
 @router.get("")
@@ -184,7 +223,7 @@ async def list_files():
     if not download_dir().exists():
         return []
     excluded = _DEFAULT_EXCLUDED
-    return await asyncio.to_thread(_build_tree, download_dir(), download_dir(), excluded)
+    return await asyncio.to_thread(_build_tree, download_dir(), download_dir(), excluded, _own_files())
 
 
 @router.get("/stream/{file_path:path}")

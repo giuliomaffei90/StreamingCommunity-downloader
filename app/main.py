@@ -86,6 +86,10 @@ async def lifespan(app: FastAPI):
     # rooted here too, and an absent root shows as an empty library.
     download_dir().mkdir(parents=True, exist_ok=True)
     downloads_notify.register_batch_listener()
+    # Before anything can submit: whatever the previous run left unfinished has
+    # no worker behind it and never will, so it comes back as failed rather than
+    # as nothing at all.
+    job_manager.restore_from_history()
     store = ScheduleStore(SCHEDULE_FILE)
     job_manager.set_schedule_store(store)
     job_manager.load_scheduled_from_store()
