@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -11,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.config import VIDEOS_DIR, DATA_FILE
+from app.config import download_dir
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -19,8 +18,12 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 def _safe_path(rel_path: str) -> Path:
-    """Resolve path and ensure it's inside VIDEOS_DIR (prevent traversal)."""
-    base = VIDEOS_DIR.resolve()
+    """Resolve path and ensure it stays inside the download folder (no traversal).
+
+    Resolved per call, not bound once: the folder is a setting, and the file
+    manager must follow it the moment it changes.
+    """
+    base = download_dir().resolve()
     target = (base / rel_path).resolve()
     if not target.is_relative_to(base):
         raise HTTPException(status_code=400, detail="Invalid path")
@@ -31,7 +34,7 @@ def _safe_path(rel_path: str) -> Path:
 
 def _safe_path_strict(rel_path: str) -> Path:
     """Like _safe_path but raises ValueError/FileNotFoundError instead of HTTPException."""
-    base = VIDEOS_DIR.resolve()
+    base = download_dir().resolve()
     target = (base / rel_path).resolve()
     if not target.is_relative_to(base):
         raise ValueError("Invalid path")
@@ -40,27 +43,17 @@ def _safe_path_strict(rel_path: str) -> Path:
     return target
 
 
-def _read_data() -> dict:
-    try:
-        with open(DATA_FILE) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-
 # ── Disk usage ─────────────────────────────────────────────────────────────────
 #
-# Reported per *volume*, not per library: in practice all three libraries are
-# folders on the same mount, and three identical figures said nothing useful
-# while costing three stats of a possibly sleeping NFS share.
+# Reported per *volume* rather than per folder, which is what the reading
+# actually describes: free space belongs to the mount, not to the directory.
 
 _DISK_USAGE_TTL = 20  # seconds; the file manager reloads on every navigation
 _disk_usage_cache: dict = {"at": 0.0, "data": None}
 
 
 def _library_paths() -> list[str]:
-    paths = [lib["path"] for lib in _read_data().get("libraries", []) if lib.get("path")]
-    return paths or [str(VIDEOS_DIR)]
+    return [str(download_dir())]
 
 
 def _compute_disk_usage() -> dict:
@@ -124,26 +117,8 @@ def _build_tree(directory: Path, base: Path, excluded: set) -> list[dict]:
     return entries
 
 
-def _build_library_tree(directory: Path, depth: int = 0, max_depth: int = 3) -> list[dict]:
-    """Recursively list subdirectories only (no files) for library navigation."""
-    if depth >= max_depth:
-        return []
-    entries = []
-    try:
-        for item in sorted(directory.iterdir()):
-            if item.is_dir() and not item.name.startswith('.'):
-                entries.append({
-                    "name": item.name,
-                    "abs_path": str(item.resolve()),
-                    "children": _build_library_tree(item, depth + 1, max_depth),
-                })
-    except PermissionError:
-        pass
-    return entries
-
-
+# Folders that are never worth showing in a media library.
 _DEFAULT_EXCLUDED = {"images", "snippets", "lost+found"}
-_TYPE_LABELS = {"film": "Film", "tv": "Serie TV", "anime": "Anime"}
 
 
 def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list[dict]:
@@ -179,35 +154,18 @@ def _search_tree(directory: Path, base: Path, query: str, excluded: set) -> list
 async def search_files(q: str):
     if not q or len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="Query troppo corta (min 2 caratteri)")
-    if not VIDEOS_DIR.exists():
+    if not download_dir().exists():
         return []
-    excluded = _DEFAULT_EXCLUDED | set(_read_data().get("excluded_folders", []))
-    return await asyncio.to_thread(_search_tree, VIDEOS_DIR, VIDEOS_DIR, q.strip().lower(), excluded)
+    excluded = _DEFAULT_EXCLUDED
+    return await asyncio.to_thread(_search_tree, download_dir(), download_dir(), q.strip().lower(), excluded)
 
 
 @router.get("")
 async def list_files():
-    if not VIDEOS_DIR.exists():
+    if not download_dir().exists():
         return []
-    excluded = _DEFAULT_EXCLUDED | set(_read_data().get("excluded_folders", []))
-    return await asyncio.to_thread(_build_tree, VIDEOS_DIR, VIDEOS_DIR, excluded)
-
-
-@router.get("/library-tree")
-async def list_library_tree():
-    data = _read_data()
-    result = []
-    for lib in data.get("libraries", []):
-        lib_path = Path(lib["path"])
-        exists = lib_path.exists()
-        lib_type = lib.get("type", "")
-        result.append({
-            "name": _TYPE_LABELS.get(lib_type, lib_type or lib.get("name", "?")),
-            "abs_path": str(lib_path.resolve()),
-            "exists": exists,
-            "children": (await asyncio.to_thread(_build_library_tree, lib_path)) if exists else [],
-        })
-    return result
+    excluded = _DEFAULT_EXCLUDED
+    return await asyncio.to_thread(_build_tree, download_dir(), download_dir(), excluded)
 
 
 @router.get("/stream/{file_path:path}")
@@ -233,9 +191,7 @@ def download_file(file_path: str):
 
 class MoveRequest(BaseModel):
     path: str
-    dest_dir_path: str | None = None  # destination dir relative to VIDEOS_DIR (empty = root)
-    dest_abs_path: str | None = None  # destination absolute path in a library
-    library_name: str | None = None   # legacy
+    dest_dir_path: str | None = None  # relative to the download folder (empty = its root)
 
 
 class BatchMoveRequest(BaseModel):
@@ -253,42 +209,23 @@ class RenameRequest(BaseModel):
 
 
 @router.post("/move")
-async def move_to_library(body: MoveRequest):
-    data = _read_data()
+async def move_file(body: MoveRequest):
     source = _safe_path(body.path)
 
-    if body.dest_dir_path is not None:
-        # Move within VIDEOS_DIR
-        base = VIDEOS_DIR.resolve()
-        dest_dir = (base / body.dest_dir_path).resolve() if body.dest_dir_path else base
-        if not dest_dir.is_relative_to(base) and dest_dir != base:
-            raise HTTPException(status_code=400, detail="Destinazione non valida")
-        if not dest_dir.exists():
-            raise HTTPException(status_code=400, detail="Cartella di destinazione non esiste")
-        if source.is_dir():
-            src_resolved = source.resolve()
-            if dest_dir == src_resolved or dest_dir.is_relative_to(src_resolved):
-                raise HTTPException(status_code=400, detail="Non puoi spostare una cartella dentro se stessa")
-        dest = dest_dir / source.name
-    elif body.dest_abs_path:
-        lib_paths = [Path(lib["path"]).resolve() for lib in data.get("libraries", [])]
-        dest_dir = Path(body.dest_abs_path).resolve()
-        if not dest_dir.exists():
-            raise HTTPException(status_code=400, detail="Cartella di destinazione non esiste")
-        if not any(dest_dir == lp or dest_dir.is_relative_to(lp) for lp in lib_paths):
-            raise HTTPException(status_code=400, detail="Destinazione non in una libreria configurata")
-        dest = dest_dir / source.name
-    elif body.library_name:
-        lib_map = {lib.get("type", lib.get("name", "")): lib["path"] for lib in data.get("libraries", [])}
-        if body.library_name not in lib_map:
-            raise HTTPException(status_code=400, detail=f"Libreria '{body.library_name}' non configurata")
-        dest_dir_root = Path(lib_map[body.library_name])
-        if not dest_dir_root.exists():
-            raise HTTPException(status_code=400, detail=f"Il percorso della libreria non esiste: {dest_dir_root}")
-        rel = source.relative_to(VIDEOS_DIR.resolve())
-        dest = dest_dir_root / rel
-    else:
-        raise HTTPException(status_code=400, detail="Specificare dest_dir_path, dest_abs_path o library_name")
+    if body.dest_dir_path is None:
+        raise HTTPException(status_code=400, detail="Specificare dest_dir_path")
+
+    base = download_dir().resolve()
+    dest_dir = (base / body.dest_dir_path).resolve() if body.dest_dir_path else base
+    if not dest_dir.is_relative_to(base) and dest_dir != base:
+        raise HTTPException(status_code=400, detail="Destinazione non valida")
+    if not dest_dir.exists():
+        raise HTTPException(status_code=400, detail="Cartella di destinazione non esiste")
+    if source.is_dir():
+        src_resolved = source.resolve()
+        if dest_dir == src_resolved or dest_dir.is_relative_to(src_resolved):
+            raise HTTPException(status_code=400, detail="Non puoi spostare una cartella dentro se stessa")
+    dest = dest_dir / source.name
 
     if dest.exists():
         raise HTTPException(status_code=409, detail=f"'{source.name}' esiste già nella destinazione")
@@ -317,8 +254,8 @@ async def delete_path(file_path: str):
 
 
 def _batch_move_sync(paths: list[str], dest_dir_path: str) -> list[dict]:
-    """Move multiple paths within VIDEOS_DIR (blocking, runs in thread)."""
-    base = VIDEOS_DIR.resolve()
+    """Move multiple paths within the download folder (blocking, runs in thread)."""
+    base = download_dir().resolve()
     dest_dir = (base / dest_dir_path).resolve() if dest_dir_path else base
     results = []
     for p in paths:
@@ -355,7 +292,7 @@ async def batch_move(body: BatchMoveRequest):
 
 
 def _batch_delete_sync(paths: list[str]) -> list[dict]:
-    """Delete multiple paths within VIDEOS_DIR (blocking, runs in thread)."""
+    """Delete multiple paths within the download folder (blocking, runs in thread)."""
     results = []
     for p in paths:
         try:
@@ -381,7 +318,7 @@ async def rename_path(body: RenameRequest):
         await asyncio.to_thread(source.rename, dest)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Rinomina fallita: {e}")
-    return {"renamed_to": str(dest.relative_to(VIDEOS_DIR.resolve()))}
+    return {"renamed_to": str(dest.relative_to(download_dir().resolve()))}
 
 
 @router.post("/delete-batch")

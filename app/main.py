@@ -16,7 +16,7 @@ from app import __version__, downloads_hooks, downloads_notify
 from app.core import domain_recovery
 from app.jobs import job_manager
 from app.schedule import ScheduleStore
-from app.config import SCHEDULE_FILE, VIDEOS_DIR
+from app.config import SCHEDULE_FILE, download_dir
 from app.routers import (
     domain, search, tv, downloads, progress, files, images, anime,
     metadata as metadata_router, download_hooks,
@@ -80,10 +80,11 @@ class VersionedStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The default destination, created up front rather than on the first
-    # download: it is where the settings say files will go, and a folder the
-    # user is told about but cannot find reads as something already broken.
-    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    # The destination, created up front rather than on the first download: it is
+    # where the settings say files will go, and a folder the user is told about
+    # but cannot find reads as something already broken. The file manager is
+    # rooted here too, and an absent root shows as an empty library.
+    download_dir().mkdir(parents=True, exist_ok=True)
     downloads_notify.register_batch_listener()
     # Registered after the notification one so outbound side effects cannot
     # delay or swallow the user's own notification.

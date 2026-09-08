@@ -1849,9 +1849,6 @@
             <a class="nav-link active" href="#" data-settings-tab="sorgente">Sorgente</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="#" data-settings-tab="librerie">Librerie</a>
-          </li>
-          <li class="nav-item">
             <a class="nav-link" href="#" data-settings-tab="nomi">Nomi</a>
           </li>
           <li class="nav-item">
@@ -1917,38 +1914,6 @@
               <i class="ti ti-refresh me-1"></i>Controlla ora
             </button>
             <div id="domain-recovery-feedback" class="form-text"></div>
-          </div>
-        </div>
-        </div>
-
-        <div class="settings-pane" data-settings-pane="librerie" style="display:none">
-        <!-- ── Librerie e cartelle ───────────────────────────────────────── -->
-        <div class="settings-section">
-          <p class="settings-section-label">Librerie multimediali</p>
-          <p class="settings-section-hint">
-            Dove finiscono i file scaricati, una cartella per tipo di contenuto.
-          </p>
-          <p class="settings-section-hint">
-            Usa <strong>Sfoglia</strong> per scegliere la cartella, oppure incolla un
-            percorso del Mac (<code>/Users/tuonome/Movies/Serie</code>, o un volume
-            esterno in <code>/Volumes</code>). Lasciando vuoto un tipo, i file finiscono
-            nella cartella predefinita.
-          </p>
-          <div id="libraries-list" class="mb-2"></div>
-          <button class="btn btn-sm btn-outline-secondary" onclick="addLibrary()">
-            <i class="ti ti-plus me-1"></i>Aggiungi libreria
-          </button>
-
-          <label class="form-label mt-3" for="excluded-input">Cartelle escluse</label>
-          <input type="text" id="excluded-input" class="form-control"
-                 placeholder="lost+found, .recycle, @eaDir, ...">
-          <div class="form-text">Nomi separati da virgola, ignorati sfogliando le librerie.</div>
-
-          <div class="settings-actions">
-            <button type="button" class="btn btn-primary btn-sm" onclick="saveLibraries()" id="save-libraries-btn">
-              Salva librerie e cartelle
-            </button>
-            <div id="libraries-feedback" class="form-text"></div>
           </div>
         </div>
         </div>
@@ -2048,9 +2013,36 @@
         </div>
 
         <div class="settings-pane" data-settings-pane="download" style="display:none">
+        <!-- ── Cartella di destinazione ──────────────────────────────────── -->
+        <div class="settings-section">
+          <p class="settings-section-label">Cartella di destinazione</p>
+          <p class="settings-section-hint">
+            Dove finiscono i file scaricati. È anche la cartella che mostra il gestore
+            file, quindi quello che scarichi lo ritrovi sempre lì.
+          </p>
+          <div class="row g-2 align-items-center">
+            <div class="col">
+              <input type="text" id="download-dir-input" class="form-control"
+                     placeholder="~/Movies/StreamingCommunity">
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-secondary" id="download-dir-browse"
+                      onclick="browseDownloadDir()" title="Scegli cartella">
+                <i class="ti ti-folder-open me-1"></i>Sfoglia
+              </button>
+            </div>
+          </div>
+          <div class="form-text">Lascia vuoto per usare la cartella predefinita.</div>
+          <div class="settings-actions">
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveDownloadDir()"
+                    id="save-download-dir-btn">Salva cartella</button>
+            <div id="download-dir-feedback" class="form-text"></div>
+          </div>
+        </div>
+
         <!-- ── Performance download ──────────────────────────────────────── -->
         <div class="settings-section">
-          <p class="settings-section-label">Download</p>
+          <p class="settings-section-label">Prestazioni</p>
           <div class="row g-3">
             <div class="col-sm-6">
               <label class="form-label" for="setting-max-concurrent">

@@ -9,17 +9,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.config import VIDEOS_DIR, TMP_DIR, get_settings
+from app.config import TMP_DIR, get_settings
 from app.progress import DownloadCancelledError, WebProgressBar
 
 
-def _get_library_path(type_: str) -> str:
-    """Return the configured library path for content type, or VIDEOS_DIR as fallback."""
-    from app.routers.domain import _read_data
-    for lib in _read_data().get("libraries", []):
-        if lib.get("type") == type_:
-            return lib["path"]
-    return str(VIDEOS_DIR)
+def _output_dir() -> str:
+    """Where a download lands. One folder, whatever the content type.
+
+    The per-type paths this replaced were the only reason the file manager and
+    the downloads could point at different places; see config.download_dir().
+    """
+    from app.config import download_dir
+    return str(download_dir())
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +270,7 @@ class JobManager:
         if type_ == "film":
             from app.core.film import download_film
             return download_film, (params["id"], params["title"], params["domain"]), dict(
-                output_dir=_get_library_path("film"), temp_dir=td, progress_factory=pf,
+                output_dir=_output_dir(), temp_dir=td, progress_factory=pf,
                 year=params.get("year"), cancel_event=job.cancel_event,
                 audio_languages=params.get("audio_languages", ["ita"]),
                 subtitle_languages=params.get("subtitle_languages", ["ita", "eng"]),
@@ -281,7 +282,7 @@ class JobManager:
                 params["tv_id"], params["eps"], params["ep_index"],
                 params["domain"], params["token"], params["tv_name"], params["season"],
             ), dict(
-                output_dir=_get_library_path("tv"), temp_dir=td, progress_factory=pf,
+                output_dir=_output_dir(), temp_dir=td, progress_factory=pf,
                 cancel_event=job.cancel_event, year=params.get("year"),
                 audio_languages=params.get("audio_languages", ["ita"]),
                 subtitle_languages=params.get("subtitle_languages", ["ita", "eng"]),
@@ -293,7 +294,7 @@ class JobManager:
                 params["anime_id"], params["episode"],
                 params["anime_name"], params.get("anime_type", "tv"),
             ), dict(
-                output_dir=_get_library_path("anime"), temp_dir=td, progress_factory=pf,
+                output_dir=_output_dir(), temp_dir=td, progress_factory=pf,
                 cancel_event=job.cancel_event, year=params.get("year"),
                 audio_languages=params.get("audio_languages", ["ita"]),
                 subtitle_languages=params.get("subtitle_languages", ["ita", "eng"]),
@@ -451,7 +452,7 @@ class JobManager:
         return self._submit_job(
             job, download_film,
             id_film, title, domain,
-            output_dir=_get_library_path("film"),
+            output_dir=_output_dir(),
             temp_dir=str(TMP_DIR / job.job_id),
             progress_factory=self._make_progress_factory(job),
             year=year,
@@ -481,7 +482,7 @@ class JobManager:
         return self._submit_job(
             job, download_episode,
             tv_id, eps, ep_index, domain, token, tv_name, season,
-            output_dir=_get_library_path("tv"),
+            output_dir=_output_dir(),
             temp_dir=str(TMP_DIR / job.job_id),
             progress_factory=self._make_progress_factory(job),
             cancel_event=job.cancel_event,
@@ -513,7 +514,7 @@ class JobManager:
         return self._submit_job(
             job, download_anime_episode,
             anime_id, episode, anime_name, anime_type,
-            output_dir=_get_library_path("anime"),
+            output_dir=_output_dir(),
             temp_dir=str(TMP_DIR / job.job_id),
             progress_factory=self._make_progress_factory(job),
             cancel_event=job.cancel_event,

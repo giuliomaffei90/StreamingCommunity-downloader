@@ -109,47 +109,41 @@ def test_the_real_host_has_the_last_word():
 # ── refused when saved ────────────────────────────────────────────────────────
 
 def test_saving_a_host_path_is_rejected(client, posix_host):
-    response = client.put(
-        "/api/domain/libraries",
-        json={
-            "libraries": [{"type": "anime", "path": r"N:\Jellyfin\Anime"}],
-            "excluded_folders": [],
-        },
-    )
+    response = client.put("/api/domain/download-dir",
+                          json={"path": r"N:\Jellyfin\Anime"})
 
     assert response.status_code == 400
     assert "percorso Windows" in response.json()["detail"]
 
 
 def test_a_rejected_save_writes_nothing(client, posix_host):
-    """One bad library must not leave the good ones half-applied."""
+    """A refused folder must not be left half-applied."""
     from app import config
 
-    client.put(
-        "/api/domain/libraries",
-        json={
-            "libraries": [
-                {"type": "film", "path": "/media/film"},
-                {"type": "anime", "path": r"N:\Jellyfin\Anime"},
-            ],
-            "excluded_folders": [],
-        },
-    )
+    client.put("/api/domain/download-dir", json={"path": r"N:\Jellyfin\Anime"})
 
     stored = json.loads(config.DATA_FILE.read_text(encoding="utf-8"))
-    assert "libraries" not in stored
+    assert "download_dir" not in stored
 
 
-def test_posix_paths_still_save(client, posix_host):
-    response = client.put(
-        "/api/domain/libraries",
-        json={
-            "libraries": [{"type": "anime", "path": "/media/anime"}],
-            "excluded_folders": [],
-        },
-    )
+def test_posix_paths_still_save(client, posix_host, tmp_path):
+    target = tmp_path / "media"
 
-    assert response.status_code == 200
+    response = client.put("/api/domain/download-dir", json={"path": str(target)})
+
+    assert response.status_code == 200, response.text
+    # Created on save rather than at the first download: the file manager is
+    # rooted here, and an absent root shows as an empty library.
+    assert target.is_dir()
+
+
+def test_clearing_it_goes_back_to_the_default(client, posix_host):
+    from app import config
+
+    client.put("/api/domain/download-dir", json={"path": ""})
+
+    assert client.get("/api/domain/download-dir").json()["path"] == ""
+    assert config.download_dir() == config.VIDEOS_DIR
 
 
 # ── refused before the download runs ──────────────────────────────────────────

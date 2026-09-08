@@ -5,7 +5,6 @@ let currentDomain = '';
 let currentVersion = '';
 let currentSource = 'streamingcommunity'; // 'streamingcommunity' | 'animeunity'
 let _searchResults = [];
-let _libraries = [];
 let _jobPhases = {};      // job_id → current phase string
 const _jobs = new Map();  // job_id → job dict (source of truth)
 let _animeCtx = {};       // context for anime episode browser
@@ -135,7 +134,7 @@ function showToast(message, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadDomainStatus();
   loadDomainCandidate();
-  await Promise.all([loadLibraries(), loadPerfSettings()]);
+  await Promise.all([loadDownloadDir(), loadPerfSettings()]);
   connectGlobalStream();
   setupFileManager();
   setupSettingsTabs();
@@ -261,7 +260,7 @@ function showPage(page) {
 // Every section in the settings modal saves itself, so each one reports into its
 // own feedback line rather than sharing one status area.
 const _SETTINGS_FEEDBACK_IDS = [
-  'domain-feedback', 'libraries-feedback', 'perf-settings-feedback',
+  'domain-feedback', 'download-dir-feedback', 'perf-settings-feedback',
   'domain-recovery-feedback', 'hooks-feedback', 'naming-feedback',
 ];
 
@@ -290,7 +289,7 @@ function _feedback(id, message = '', kind = 'muted') {
 const _SETTINGS_TAB_LOADERS = {
   sorgente: () => loadDomainRecoverySettings(),
   nomi: () => loadNamingTemplates(),
-  download: () => loadPerfSettings(),
+  download: () => Promise.all([loadDownloadDir(), loadPerfSettings()]),
   hook: () => loadHooks(),
 };
 
@@ -349,7 +348,6 @@ async function switchSettingsTab(name) {
 async function openSettings() {
   document.getElementById('domain-input').value = currentDomain;
   _SETTINGS_FEEDBACK_IDS.forEach(id => _feedback(id));
-  renderLibrariesList();
 
   // Cleared on every open so a value changed elsewhere is picked up; within one
   // open, moving between tabs does not refetch.
@@ -798,25 +796,28 @@ async function saveDomain() {
   } finally { btn.disabled = false; }
 }
 
-// ── Libraries ──────────────────────────────────────────────────────────────────
+// ── Cartella di destinazione ───────────────────────────────────────────────────
+//
+// One folder, not a path per content type. The per-type version was the only
+// reason the file manager and the downloads could point at different places.
 
-async function loadLibraries() {
+async function loadDownloadDir() {
   try {
-    const res = await fetch('/api/domain/libraries');
+    const res = await fetch('/api/domain/download-dir');
+    if (!res.ok) return;
     const data = await safeJson(res);
-    _libraries = data.libraries || [];
-    const excl = (data.excluded_folders || []).join(', ');
-    const inp = document.getElementById('excluded-input');
-    if (inp) inp.value = excl;
-  } catch(e) { console.error('loadLibraries:', e); }
+    const input = document.getElementById('download-dir-input');
+    if (!input) return;
+    input.value = data.path || '';
+    // Nothing configured: show the folder actually in use as the placeholder,
+    // so the empty field reads as "the default" rather than as "nowhere".
+    if (data.effective) input.placeholder = data.effective;
+  } catch (e) { console.error('loadDownloadDir:', e); }
 }
-const _LIB_TYPE_OPTIONS = [{value:'film',label:'Film'},{value:'tv',label:'Serie TV'},{value:'anime',label:'Anime'}];
-// The native chooser, so a library path does not have to be typed from memory.
-// It writes into the same input as before: nothing downstream cares where the
-// value came from, and typing one by hand still works.
-async function browseLibrary(index) {
-  const btn = document.getElementById(`lib-browse-${index}`);
-  const input = document.getElementById(`lib-path-${index}`);
+
+async function browseDownloadDir() {
+  const btn = document.getElementById('download-dir-browse');
+  const input = document.getElementById('download-dir-input');
   if (!input) return;
   if (btn) btn.disabled = true;
   try {
@@ -824,10 +825,7 @@ async function browseLibrary(index) {
     if (!res.ok) { showToast('Impossibile aprire il selettore', 'danger'); return; }
     const data = await safeJson(res);
     // A cancelled dialog answers with null: leave what was already there.
-    if (data.path) {
-      input.value = data.path;
-      _libraries[index].path = data.path;
-    }
+    if (data.path) input.value = data.path;
   } catch (e) {
     showToast('Errore di rete', 'danger');
   } finally {
@@ -835,63 +833,32 @@ async function browseLibrary(index) {
   }
 }
 
-function renderLibrariesList() {
-  const c = document.getElementById('libraries-list');
-  if (!c) return;
-  if (!_libraries.length) { c.innerHTML = '<p class="text-muted small mb-0">Nessuna libreria.</p>'; return; }
-  const usedTypes = _libraries.map(l => l.type);
-  c.innerHTML = _libraries.map((lib, i) => {
-    const opts = _LIB_TYPE_OPTIONS.map(o => {
-      const disabled = o.value !== lib.type && usedTypes.some((t,j) => j !== i && t === o.value) ? 'disabled' : '';
-      const selected = o.value === lib.type ? 'selected' : '';
-      return `<option value="${o.value}" ${selected} ${disabled}>${o.label}</option>`;
-    }).join('');
-    return `
-    <div class="row g-2 mb-2 align-items-center">
-      <div class="col-4"><select class="form-select form-select-sm" id="lib-type-${i}"><option value="">Tipo...</option>${opts}</select></div>
-      <div class="col"><input type="text" class="form-control form-control-sm" id="lib-path-${i}" value="${escapeHtml(lib.path)}" placeholder="/Users/tuonome/Movies/Film"></div>
-      <div class="col-auto"><button class="btn btn-sm btn-outline-secondary" id="lib-browse-${i}" onclick="browseLibrary(${i})" title="Scegli cartella"><i class="ti ti-folder-open"></i></button></div>
-      <div class="col-auto"><button class="btn btn-sm btn-outline-danger" onclick="removeLibrary(${i})"><i class="ti ti-trash"></i></button></div>
-    </div>`;
-  }).join('');
-}
-function _syncLibs() {
-  _libraries = _libraries.map((_,i) => ({
-    type: document.getElementById(`lib-type-${i}`)?.value||'',
-    path: document.getElementById(`lib-path-${i}`)?.value||'',
-  }));
-}
-function addLibrary() {
-  _syncLibs(); _libraries.push({type:'',path:''}); renderLibrariesList();
-  document.getElementById(`lib-path-${_libraries.length-1}`)?.focus();
-}
-function removeLibrary(idx) { _syncLibs(); _libraries.splice(idx,1); renderLibrariesList(); }
-async function saveLibraries() {
-  const updated = _libraries.map((_,i) => ({
-    type:(document.getElementById(`lib-type-${i}`)?.value||'').trim(),
-    path:(document.getElementById(`lib-path-${i}`)?.value||'').trim(),
-  })).filter(l => l.type && l.path);
-  const excluded = (document.getElementById('excluded-input')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
-  const btn = document.getElementById('save-libraries-btn');
+async function saveDownloadDir() {
+  const btn = document.getElementById('save-download-dir-btn');
+  const input = document.getElementById('download-dir-input');
   btn.disabled = true;
-  _feedback('libraries-feedback', 'Salvataggio...');
+  _feedback('download-dir-feedback', 'Salvataggio...');
   try {
-    const res = await fetch('/api/domain/libraries', {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({libraries:updated, excluded_folders:excluded}),
+    const res = await fetch('/api/domain/download-dir', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: input.value.trim()}),
     });
     if (res.ok) {
-      _libraries = updated;
-      renderLibrariesList();
-      _feedback('libraries-feedback', 'Salvato.', 'success');
-      showToast('Librerie salvate','success');
+      _feedback('download-dir-feedback', 'Salvato.', 'success');
+      showToast('Cartella salvata', 'success');
+      await loadDownloadDir();
+      // The file manager is rooted at this folder, so it is now showing the
+      // wrong tree until it is re-read.
+      if (document.getElementById('page-files')?.style.display !== 'none') loadFiles();
     } else {
       const d = await safeJson(res);
-      _feedback('libraries-feedback', d.detail || 'Errore', 'danger');
+      _feedback('download-dir-feedback', _detailText(d) || 'Errore salvataggio.', 'danger');
     }
-  } catch(e) { _feedback('libraries-feedback', 'Errore di rete', 'danger'); }
+  } catch (e) { _feedback('download-dir-feedback', 'Errore di rete.', 'danger'); }
   finally { btn.disabled = false; }
 }
+
 
 // ── Search ─────────────────────────────────────────────────────────────────────
 

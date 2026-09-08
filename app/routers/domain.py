@@ -1,9 +1,9 @@
 import asyncio
 import json
 import logging
-from typing import Literal
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app import config
@@ -108,43 +108,49 @@ def dismiss_domain_candidate():
     return {"ok": True}
 
 
-class LibraryItem(BaseModel):
-    type: Literal["film", "tv", "anime"]
+class DownloadDirUpdate(BaseModel):
     path: str
 
 
-class LibrariesUpdate(BaseModel):
-    libraries: list[LibraryItem]
-    excluded_folders: list[str]
+@router.get("/download-dir")
+def get_download_dir():
+    """The configured folder, and the one actually in use.
 
+    They differ only when nothing is configured, where `path` is empty and
+    `effective` is the default — so the field can show a placeholder rather than
+    a value the user never chose.
+    """
+    from app.config import download_dir
 
-@router.get("/libraries")
-def get_libraries():
-    data = _read_data()
     return {
-        "libraries": data.get("libraries", []),
-        "excluded_folders": data.get("excluded_folders", []),
+        "path": (_read_data().get("download_dir") or "").strip(),
+        "effective": str(download_dir()),
     }
 
 
-@router.put("/libraries")
-def set_libraries(body: LibrariesUpdate):
-    # Deduplicate: last entry per type wins
-    seen: dict[str, dict] = {}
-    for lib in body.libraries:
-        # Rejected here rather than at download time. A host path saved on a
-        # Linux deployment is accepted by every layer below — a backslash is a
-        # legal filename character there — and only surfaces once FFmpeg is
-        # handed the name at the end of a finished download.
-        try:
-            path = validate_library_path(lib.path)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        seen[lib.type] = {"type": lib.type, "path": path}
-    _update_data({
-        "libraries": list(seen.values()),
-        "excluded_folders": body.excluded_folders,
-    })
+@router.put("/download-dir")
+def set_download_dir(body: DownloadDirUpdate):
+    path = body.path.strip()
+    if not path:
+        # Clearing it is how you go back to the default, not an error.
+        _update_data({"download_dir": ""})
+        return {"ok": True}
+
+    # Rejected here rather than at download time. A Windows path is accepted by
+    # every layer below — a backslash is a legal filename character on macOS —
+    # and only surfaces once FFmpeg is handed the name at the end of a finished
+    # download.
+    try:
+        path = validate_library_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        Path(path).expanduser().mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Impossibile usare la cartella: {exc}")
+
+    _update_data({"download_dir": path})
     return {"ok": True}
 
 

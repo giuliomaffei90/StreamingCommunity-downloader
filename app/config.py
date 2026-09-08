@@ -73,6 +73,22 @@ def read_data() -> dict:
         return {}
 
 
+def download_dir() -> Path:
+    """The one folder downloads land in, and the one the file manager shows.
+
+    There used to be three — a path per content type — which is why the file
+    manager and the downloads could disagree: downloads went to the configured
+    library paths while the file manager always browsed VIDEOS_DIR, so setting a
+    library made the File tab stop showing what was being downloaded into it.
+    One folder cannot drift from itself.
+
+    Read on every call rather than bound at import: it is a setting, and a job
+    submitted after it changes must land in the new place.
+    """
+    configured = (read_data().get("download_dir") or "").strip()
+    return Path(configured).expanduser() if configured else VIDEOS_DIR
+
+
 def configured_domain() -> str:
     """The source domain, as configured by the user.
 
