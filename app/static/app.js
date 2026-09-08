@@ -111,7 +111,11 @@ document.addEventListener('click', (e) => {
     hideModal(e.target.id);
   if (e.target.closest('[data-bs-dismiss="modal"]')) {
     const modal = e.target.closest('.modal');
-    if (modal) hideModal(modal.id);
+    if (!modal) return;
+    // Hidden first, saved after: the settings save includes a request or two
+    // and the window should not sit there while they finish.
+    hideModal(modal.id);
+    if (modal.id === 'settings-modal') saveAllSettings();
   }
 });
 
@@ -211,7 +215,7 @@ async function applyDomainCandidate() {
       showToast(d.detail || 'Impossibile applicare il dominio', 'danger');
     }
   } catch (e) { showToast('Errore di rete', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function dismissDomainCandidate() {
@@ -342,6 +346,19 @@ async function switchSettingsTab(name) {
     _settingsLoaded.add(name);
     await _SETTINGS_TAB_LOADERS[name]?.();
   }
+}
+
+// Closing the modal is the save. Every section used to carry its own button,
+// which meant a change made in one tab was silently discarded by leaving
+// through another.
+async function saveAllSettings() {
+  const tasks = [saveDownloadDir(), savePerfSettings(), saveNamingTemplates(),
+                 saveDomainRecovery()];
+  // The domain is the one field whose save is a network verification against
+  // the source, so it only runs when it actually changed — not on every close.
+  const typed = document.getElementById('domain-input')?.value.trim();
+  if (typed && typed !== currentDomain) tasks.push(saveDomain());
+  await Promise.allSettled(tasks);
 }
 
 async function openSettings() {
@@ -504,8 +521,8 @@ async function refreshNamingPreview() {
 }
 
 async function saveNamingTemplates() {
-  const btn = document.getElementById('save-naming-btn');
-  btn.disabled = true;
+  const btn = document.getElementById('save-naming-btn') || {};
+  if (btn) btn.disabled = true;
   _feedback('naming-feedback', 'Salvataggio...');
   try {
     const res = await fetch('/api/domain/settings', {
@@ -521,7 +538,7 @@ async function saveNamingTemplates() {
       _feedback('naming-feedback', _detailText(d) || 'Errore salvataggio.', 'danger');
     }
   } catch (e) { _feedback('naming-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function resetNamingTemplates() {
@@ -535,7 +552,7 @@ async function resetNamingTemplates() {
 
 
 async function saveDomainRecovery() {
-  const btn = document.getElementById('save-domain-recovery-btn');
+  const btn = document.getElementById('save-domain-recovery-btn') || {};
   const interval = parseInt(document.getElementById('domain-check-interval').value, 10);
   if (!(interval >= 30 && interval <= 1440)) {
     _feedback('domain-recovery-feedback', 'Intervallo tra 30 e 1440 minuti.', 'danger');
@@ -569,7 +586,7 @@ async function saveDomainRecovery() {
       _feedback('domain-recovery-feedback', d.detail || 'Errore salvataggio.', 'danger');
     }
   } catch (e) { _feedback('domain-recovery-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function checkDomainNow() {
@@ -602,11 +619,11 @@ async function checkDomainNow() {
     }
     await loadDomainCandidate();
   } catch (e) { _feedback('domain-recovery-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function savePerfSettings() {
-  const btn = document.getElementById('save-perf-btn');
+  const btn = document.getElementById('save-perf-btn') || {};
   const concurrent = parseInt(document.getElementById('setting-max-concurrent').value, 10);
   const workers = parseInt(document.getElementById('setting-max-workers').value, 10);
   if (!concurrent || !workers) {
@@ -632,12 +649,12 @@ async function savePerfSettings() {
       _feedback('perf-settings-feedback', d.detail || 'Errore salvataggio.', 'danger');
     }
   } catch (e) { _feedback('perf-settings-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function saveDomain() {
   const domain = document.getElementById('domain-input').value.trim();
-  const btn = document.getElementById('save-domain-btn');
+  const btn = document.getElementById('save-domain-btn') || {};
   if (!domain) { _feedback('domain-feedback', 'Inserisci un domain.', 'danger'); return; }
   btn.disabled = true;
   _feedback('domain-feedback', 'Verifica in corso...');
@@ -659,7 +676,7 @@ async function saveDomain() {
     }
   } catch(e) {
     _feedback('domain-feedback', 'Errore di rete', 'danger');
-  } finally { btn.disabled = false; }
+  } finally { if (btn) btn.disabled = false; }
 }
 
 // ── Cartella di destinazione ───────────────────────────────────────────────────
@@ -700,7 +717,7 @@ async function browseDownloadDir() {
 }
 
 async function saveDownloadDir() {
-  const btn = document.getElementById('save-download-dir-btn');
+  const btn = document.getElementById('save-download-dir-btn') || {};
   const input = document.getElementById('download-dir-input');
   btn.disabled = true;
   _feedback('download-dir-feedback', 'Salvataggio...');
@@ -722,7 +739,7 @@ async function saveDownloadDir() {
       _feedback('download-dir-feedback', _detailText(d) || 'Errore salvataggio.', 'danger');
     }
   } catch (e) { _feedback('download-dir-feedback', 'Errore di rete.', 'danger'); }
-  finally { btn.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 
