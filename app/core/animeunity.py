@@ -6,6 +6,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+from app.core._shared import with_retry
 from app.core.headers import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,8 @@ def search(query: str) -> list[dict]:
     host = ANIMEUNITY_HOST
 
     # Initial GET to establish session and get CSRF token
-    r_home = scraper.get(f"https://{host}/", timeout=15)
+    r_home = with_retry(lambda: scraper.get(f"https://{host}/", timeout=15),
+                        what="AnimeUnity home")
     
     # Extract CSRF token from meta tag if present
     csrf_token = None
@@ -107,12 +109,12 @@ def search(query: str) -> list[dict]:
         headers_ajax["X-CSRF-TOKEN"] = csrf_token
 
     # Use the /livesearch endpoint (POST with {title: query})
-    r = scraper.post(
+    r = with_retry(lambda: scraper.post(
         f"https://{host}/livesearch",
         json={"title": query},
         headers=headers_ajax,
         timeout=15,
-    )
+    ), what="AnimeUnity search")
 
     if not r.ok:
         logger.error("Livesearch failed with status %d. CSRF token was: %s", 
@@ -142,7 +144,8 @@ def get_episodes(anime_id: str) -> list[dict]:
     scraper = _get_scraper()
     host = ANIMEUNITY_HOST
 
-    r = scraper.get(f"https://{host}/info_api/{anime_id}", timeout=15)
+    r = with_retry(lambda: scraper.get(f"https://{host}/info_api/{anime_id}", timeout=15),
+                   what="AnimeUnity episode count")
     r.raise_for_status()
     episodes_count = r.json().get("episodes_count", 0)
 
@@ -152,11 +155,11 @@ def get_episodes(anime_id: str) -> list[dict]:
     episodes = []
     for start in range(0, episodes_count + 1, BATCH_SIZE):
         end = min(start + BATCH_SIZE - 1, episodes_count)
-        batch_r = scraper.get(
+        batch_r = with_retry(lambda: scraper.get(
             f"https://{host}/info_api/{anime_id}/0",
             params={"start_range": start, "end_range": end},
             timeout=15,
-        )
+        ), what="AnimeUnity episode list")
         if batch_r.ok:
             episodes.extend(batch_r.json().get("episodes", []))
 
@@ -172,7 +175,8 @@ def _get_embed_content(episode_id) -> tuple[str, str]:
     host = ANIMEUNITY_HOST
 
     # AnimeUnity returns the vixcloud.co embed URL as plain text
-    r = scraper.get(f"https://{host}/embed-url/{episode_id}", timeout=15)
+    r = with_retry(lambda: scraper.get(f"https://{host}/embed-url/{episode_id}", timeout=15),
+                   what="AnimeUnity embed URL")
     r.raise_for_status()
     embed_url = r.text.strip()
 
@@ -186,11 +190,11 @@ def _get_embed_content(episode_id) -> tuple[str, str]:
     # Use the cloudscraper session to clear the challenge. (The downstream
     # /playlist, /storage/enc.key and CDN segment URLs are NOT Cloudflare-gated
     # and still work with plain requests.)
-    req_embed = scraper.get(
+    req_embed = with_retry(lambda: scraper.get(
         embed_url,
         headers={"Referer": f"https://{host}/"},
         timeout=15,
-    )
+    ), what="vixcloud embed page")
     req_embed.raise_for_status()
 
     soup = BeautifulSoup(req_embed.text, "lxml")

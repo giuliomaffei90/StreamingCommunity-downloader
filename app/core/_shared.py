@@ -9,6 +9,52 @@ from .headers import get_headers
 
 logger = logging.getLogger(__name__)
 
+# How many times a resolution request is worth sending. This is the phase that
+# happens before a single byte is downloaded — asking the source which episode,
+# and the video host where the playlist is — and a failure here throws the whole
+# job away, so it is worth a couple of extra seconds.
+RESOLVE_ATTEMPTS = 3
+
+# Statuses that mean "not now" rather than "no". A 4xx is a verdict and is
+# returned to the caller unretried, on the same reasoning as the segment
+# limiter: a verdict is not congestion.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def with_retry(send, *, what: str, attempts: int = RESOLVE_ATTEMPTS):
+    """Send a resolution request, retrying while the source is merely unwell.
+
+    Timeouts are retried, which is the whole point of this existing: the source
+    answers a read timeout when it is struggling, and the loops here used to
+    inspect ``status_code`` — a timeout raises before there is one, so it fell
+    straight through and killed the job. A source that flaps for a second or two
+    now costs a wait instead of a failed download.
+    """
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            response = send()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                raise
+            delay = 2 ** attempt
+            logger.warning("%s: %s, retrying in %ds (attempt %d/%d)",
+                           what, type(exc).__name__, delay, attempt + 1, attempts)
+            time.sleep(delay)
+            continue
+
+        if response.status_code in RETRY_STATUSES and attempt < attempts - 1:
+            delay = 2 ** attempt
+            logger.warning("%s: HTTP %d, retrying in %ds (attempt %d/%d)",
+                           what, response.status_code, delay, attempt + 1, attempts)
+            time.sleep(delay)
+            continue
+        return response
+
+    raise last_error  # unreachable: the loop either returns or re-raises
+
+
 _scraper = None
 
 
@@ -42,7 +88,8 @@ def _fetch_vixcloud_embed(url_embed, referer=None):
     headers = {"user-agent": get_headers()}
     if referer:
         headers["referer"] = referer
-    req = _get_scraper().get(url_embed, headers=headers, timeout=15)
+    req = with_retry(lambda: _get_scraper().get(url_embed, headers=headers, timeout=15),
+                     what="vixcloud embed page")
     req.raise_for_status()
     body = BeautifulSoup(req.text, "lxml").find("body")
     if body is None:
@@ -99,19 +146,11 @@ def _get_m3u8_key(json_win_video, json_win_param, referer):
     """Fetch AES decryption key from vixcloud.co. Retries on transient 5xx errors."""
     url = "https://vixcloud.co/storage/enc.key"
     headers = {"user-agent": get_headers(), "referer": referer}
-    max_retries = 4
-    for attempt in range(max_retries):
-        req = requests.get(url, headers=headers, timeout=15)
-        if req.ok:
-            return "".join([f"{c:02x}" for c in req.content])
-        if req.status_code >= 500 and attempt < max_retries - 1:
-            delay = 2 ** attempt  # 1s, 2s, 4s
-            logger.warning("enc.key returned HTTP %d, retrying in %ds (attempt %d/%d)",
-                           req.status_code, delay, attempt + 1, max_retries)
-            time.sleep(delay)
-            continue
-        raise RuntimeError(f"Cannot fetch encryption key: HTTP {req.status_code}")
-    raise RuntimeError(f"Cannot fetch encryption key after {max_retries} attempts")
+    req = with_retry(lambda: requests.get(url, headers=headers, timeout=15),
+                     what="enc.key", attempts=4)
+    if req.ok:
+        return "".join([f"{c:02x}" for c in req.content])
+    raise RuntimeError(f"Cannot fetch encryption key: HTTP {req.status_code}")
 
 
 def _get_m3u8_url(json_win_video, json_win_param, add_b1=False):
@@ -235,15 +274,11 @@ def fetch_key_from_playlist(master_url: str, referer: str) -> str | None:
         raise RuntimeError(f"Chiave di cifratura su un host non consentito: {host or key_uri}")
 
     headers = {"user-agent": get_headers(), "referer": referer}
-    for attempt in range(4):
-        req = requests.get(key_uri, headers=headers, timeout=15)
-        if req.ok:
-            return "".join(f"{c:02x}" for c in req.content)
-        if req.status_code >= 500 and attempt < 3:
-            time.sleep(2 ** attempt)
-            continue
-        raise RuntimeError(f"Cannot fetch encryption key: HTTP {req.status_code}")
-    raise RuntimeError("Cannot fetch encryption key after 4 attempts")
+    req = with_retry(lambda: requests.get(key_uri, headers=headers, timeout=15),
+                     what="playlist key", attempts=4)
+    if req.ok:
+        return "".join(f"{c:02x}" for c in req.content)
+    raise RuntimeError(f"Cannot fetch encryption key: HTTP {req.status_code}")
 
 
 def resolve_stream(primary, *, tmdb_id=None, media_type="movie",
