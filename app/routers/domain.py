@@ -164,6 +164,7 @@ class SettingsUpdate(BaseModel):
     """
 
     max_concurrent_downloads: int | None = None
+    max_concurrent_transcodes: int | None = None
     max_segment_workers: int | None = None
     transcode_enabled: bool | None = None
     naming_templates: dict[str, str] | None = None
@@ -227,6 +228,7 @@ def get_app_settings():
 # is simply absent here.
 _SETTING_RANGES = (
     ("max_concurrent_downloads", 1, 32),
+    ("max_concurrent_transcodes", 1, 8),
     ("max_segment_workers", 1, 128),
     # Floored well above the throttle in domain_recovery: a check any more often
     # than this is hammering somebody else's page for a domain that rotates
@@ -255,6 +257,7 @@ def set_app_settings(body: SettingsUpdate):
     new_settings = config.merge_settings(provided)
     from app.jobs import job_manager
     job_manager.update_max_concurrent(new_settings["max_concurrent_downloads"])
+    job_manager.update_max_transcodes(new_settings["max_concurrent_transcodes"])
     return new_settings
 
 

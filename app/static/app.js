@@ -423,6 +423,7 @@ async function loadPerfSettings() {
   const data = await _loadAppSettings();
   if (!data) return;
   document.getElementById('setting-max-concurrent').value = data.max_concurrent_downloads ?? 3;
+  document.getElementById('setting-max-transcodes').value = data.max_concurrent_transcodes ?? 1;
   document.getElementById('setting-max-workers').value = data.max_segment_workers ?? 16;
   document.getElementById('setting-transcode').checked = !!data.transcode_enabled;
 }
@@ -625,8 +626,9 @@ async function checkDomainNow() {
 async function savePerfSettings() {
   const btn = document.getElementById('save-perf-btn') || {};
   const concurrent = parseInt(document.getElementById('setting-max-concurrent').value, 10);
+  const transcodes = parseInt(document.getElementById('setting-max-transcodes').value, 10);
   const workers = parseInt(document.getElementById('setting-max-workers').value, 10);
-  if (!concurrent || !workers) {
+  if (!concurrent || !transcodes || !workers) {
     _feedback('perf-settings-feedback', 'Valori non validi.', 'danger'); return;
   }
   btn.disabled = true;
@@ -637,6 +639,7 @@ async function savePerfSettings() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         max_concurrent_downloads: concurrent,
+        max_concurrent_transcodes: transcodes,
         max_segment_workers: workers,
         transcode_enabled: document.getElementById('setting-transcode').checked,
       }),

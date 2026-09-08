@@ -52,6 +52,9 @@ PORT = int(os.getenv("PORT", "8000"))
 
 SETTINGS_DEFAULTS = {
     "max_concurrent_downloads": 3,
+    # One by default, and not for caution: x265 already spreads itself across
+    # every core, so three at once do not finish sooner — they all finish later.
+    "max_concurrent_transcodes": 1,
     "max_segment_workers": 16,
     # Whether to look for a replacement when the source domain stops answering.
     "domain_auto_check_enabled": True,

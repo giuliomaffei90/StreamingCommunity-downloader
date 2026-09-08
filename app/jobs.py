@@ -74,6 +74,12 @@ class JobManager:
         n = get_settings().get("max_concurrent_downloads", 3)
         self._semaphore = threading.BoundedSemaphore(n)
         self._semaphore_value = n
+        # Deliberately separate from the one above: a download slot is somebody
+        # else's bandwidth and an encoder slot is this machine's cores, and one
+        # running out must not idle the other. See _maybe_transcode.
+        t = get_settings().get("max_concurrent_transcodes", 1)
+        self._transcode_semaphore = threading.BoundedSemaphore(t)
+        self._transcode_value = t
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._subscribers: list[asyncio.Queue] = []
         self._schedule_store = None  # set via set_schedule_store()
@@ -99,6 +105,12 @@ class JobManager:
         # Replace semaphore — existing running downloads are unaffected
         self._semaphore = threading.BoundedSemaphore(n)
         self._semaphore_value = n
+
+    def update_max_transcodes(self, n: int):
+        if n == self._transcode_value:
+            return
+        self._transcode_semaphore = threading.BoundedSemaphore(n)
+        self._transcode_value = n
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
@@ -404,35 +416,39 @@ class JobManager:
         # ever started, which used to return early and notify nobody, leaving
         # anything counting completions waiting forever.
         try:
-            with self._semaphore:
-                if job.cancel_event.is_set():
-                    job.status = "cancelled"
-                    self._emit(job, {"type": "error", "message": "Annullato"})
-                    return
+            try:
+                with self._semaphore:
+                    if job.cancel_event.is_set():
+                        job.status = "cancelled"
+                        self._emit(job, {"type": "error", "message": "Annullato"})
+                        return
 
-                job.status = "running"
-                self._broadcast({"type": "job_status", "job_id": job.job_id, "status": "running"})
-                self._refresh_dock()
-
-                try:
+                    job.status = "running"
+                    self._broadcast({"type": "job_status", "job_id": job.job_id, "status": "running"})
+                    self._refresh_dock()
                     result = fn(*args, **kwargs)
-                    result = self._maybe_transcode(job, result)
-                    job.status = "done"
-                    job.output_path = result
-                    self._emit(job, {"type": "done", "output_path": result})
-                except DownloadCancelledError:
-                    job.status = "cancelled"
-                    self._emit(job, {"type": "error", "message": "Annullato"})
-                except Exception as e:
-                    logger.exception(f"Job {job.job_id} failed: {e}")
-                    job.status = "error"
-                    job.error = str(e)
-                    self._emit(job, {"type": "error", "message": str(e)})
-                finally:
-                    tmp_path = TMP_DIR / job.job_id
-                    if tmp_path.exists():
-                        shutil.rmtree(tmp_path, ignore_errors=True)
-                        logger.info("Cleaned up temp dir: %s", tmp_path)
+
+                # The download slot is given back above, before the encoder
+                # queue is joined. Held through the encode instead, a queue of
+                # four with three of each downloaded three files and then went
+                # quiet on the network for as long as the encoders took.
+                result = self._maybe_transcode(job, result)
+                job.status = "done"
+                job.output_path = result
+                self._emit(job, {"type": "done", "output_path": result})
+            except DownloadCancelledError:
+                job.status = "cancelled"
+                self._emit(job, {"type": "error", "message": "Annullato"})
+            except Exception as e:
+                logger.exception(f"Job {job.job_id} failed: {e}")
+                job.status = "error"
+                job.error = str(e)
+                self._emit(job, {"type": "error", "message": str(e)})
+            finally:
+                tmp_path = TMP_DIR / job.job_id
+                if tmp_path.exists():
+                    shutil.rmtree(tmp_path, ignore_errors=True)
+                    logger.info("Cleaned up temp dir: %s", tmp_path)
         finally:
             self._refresh_dock()
             from app import history
@@ -442,29 +458,32 @@ class JobManager:
     def _maybe_transcode(self, job: "DownloadJob", result):
         """Re-encode the finished file, when that is switched on.
 
-        Runs inside the download semaphore on purpose: it is the same kind of
-        heavy work a download is, and letting several of them out at once would
-        put every core on video encoding while the downloads they belong to wait
-        for a slot.
+        Takes its own semaphore, and only when there is actually something to
+        encode: a job with transcoding off must not queue behind one that has it
+        on. The caller has already given its download slot back, so a file
+        waiting here is not also holding the network idle.
         """
         from app.core import transcode
 
         if not result or not transcode.enabled():
             return result
+        # Announced before the slot is taken, so a file waiting its turn shows
+        # the step it is waiting on rather than the last one it finished.
         self._emit(job, {"type": "status", "phase": "transcoding"})
 
-        # Fed video seconds, the bar's own rate becomes video-seconds per real
-        # second — ffmpeg's "speed" multiplier — so its estimate comes out in
-        # real time with no arithmetic of ours.
-        total = transcode.duration_seconds(result)
-        bar = self._make_progress_factory(job)(total=round(total or 0), phase="transcoding")
+        with self._transcode_semaphore:
+            # Fed video seconds, the bar's own rate becomes video-seconds per
+            # real second — ffmpeg's "speed" multiplier — so its estimate comes
+            # out in real time with no arithmetic of ours.
+            total = transcode.duration_seconds(result)
+            bar = self._make_progress_factory(job)(total=round(total or 0), phase="transcoding")
 
-        def on_progress(seconds: float):
-            bar.n = round(seconds)
-            bar.update(0)
+            def on_progress(seconds: float):
+                bar.n = round(seconds)
+                bar.update(0)
 
-        return transcode.transcode(result, cancel_event=job.cancel_event,
-                                   on_progress=on_progress if total else None)
+            return transcode.transcode(result, cancel_event=job.cancel_event,
+                                       on_progress=on_progress if total else None)
 
     def _submit_job(self, job: DownloadJob, fn, *args, call_type: str = None,
                     params: dict = None, **kwargs) -> str:

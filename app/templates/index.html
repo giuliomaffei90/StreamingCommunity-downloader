@@ -2039,6 +2039,14 @@
               <div class="form-text">Suggerito: 2–4. Valori alti aumentano l'uso di rete e RAM.</div>
             </div>
             <div class="col-sm-6">
+              <label class="form-label" for="setting-max-transcodes">
+                Ricodifiche contemporanee
+                <span style="color:var(--text-dim);font-size:10px;text-transform:none;font-weight:400;letter-spacing:0;margin-left:4px">(1–8)</span>
+              </label>
+              <input type="number" id="setting-max-transcodes" class="form-control" min="1" max="8" value="1">
+              <div class="form-text">Contatore separato da quello dei download: un file che aspetta il suo turno per la ricodifica non occupa uno slot di download, così la rete continua a lavorare. Suggerito: 1 — x265 usa già tutti i core, farne partire tre insieme non le fa finire prima, le fa finire tutte dopo.</div>
+            </div>
+            <div class="col-sm-6">
               <label class="form-label" for="setting-max-workers">
                 Segmenti in parallelo
                 <span style="color:var(--text-dim);font-size:10px;text-transform:none;font-weight:400;letter-spacing:0;margin-left:4px">(1–128)</span>
