@@ -93,6 +93,11 @@ fi
 mkdir -p "$DEST_DIR"
 cp -R "$BUILT" "$DEST"
 
+# The .icns in the bundle is correct and macOS still renders it colourless; see
+# scripts/set_icon.py for what was ruled out. Stamping a custom icon resource
+# after the copy is what actually shows the icon the user drew.
+"$PYTHON" "$REPO/scripts/set_icon.py" "$DEST" || echo "   (icona non applicata)"
+
 SIZE="$(du -sh "$DEST" | cut -f1)"
 echo
 echo "Pronta: $DEST"
