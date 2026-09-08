@@ -34,8 +34,13 @@ def get_domain_version(domain: str) -> str:
 MAX_RESULTS = 60
 
 
-def search(title_search: str, domain: str, media_type: str | None = None) -> list[dict]:
-    """Search the source. ``media_type`` keeps only "movie" or only "tv"."""
+def search(title_search: str, domain: str, media_type: str | None = None,
+           page: int = 1) -> list[dict]:
+    """Search the source.
+
+    ``media_type`` keeps only "movie" or only "tv". ``page`` is 1-based; the
+    source answers 60 titles a page and pages are disjoint.
+    """
     session = requests.Session()
     ua = get_headers()
 
@@ -69,7 +74,7 @@ def search(title_search: str, domain: str, media_type: str | None = None) -> lis
 
     req = session.get(
         f"https://{domain}/it/search",
-        params={"q": title_search},
+        params={"q": title_search, **({"page": page} if page > 1 else {})},
         headers=headers,
         timeout=10,
     )

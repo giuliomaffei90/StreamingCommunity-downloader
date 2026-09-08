@@ -37,13 +37,17 @@ async def search(
     # to the source as a query field.
     media_type: str | None = Query(
         default=None, pattern="^(movie|tv|Movie|TV|OVA|ONA|Special)$"),
+    # 1-based, and the same number for both sources even though their pages are
+    # different sizes (30 and 60): the caller asks for "the next lot" and each
+    # source works out what that means for itself.
+    page: int = Query(default=1, ge=1, le=100),
 ):
     try:
         if source == "animeunity":
             results = await asyncio.to_thread(
-                animeunity.search, q, dubbed_only, media_type)
+                animeunity.search, q, dubbed_only, media_type, page)
         else:
-            results = await asyncio.to_thread(core_search, q, _domain(), media_type)
+            results = await asyncio.to_thread(core_search, q, _domain(), media_type, page)
     except HTTPException:
         raise
     except Exception as e:

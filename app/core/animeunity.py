@@ -14,9 +14,12 @@ logger = logging.getLogger(__name__)
 ANIMEUNITY_HOST = os.getenv("ANIMEUNITY_HOST", "www.animeunity.so")
 BATCH_SIZE = 120
 
-# What a search shows. /archivio/get-animes answers 30 rows per call, so this
-# is really "everything the source gave us"; the number is a ceiling for the
-# day it starts answering with more.
+# What /archivio/get-animes answers per call. Not ours to choose — it is the
+# page size the source uses, and what one "Carica altri" is worth.
+ARCHIVE_PAGE = 30
+
+# A ceiling on what one call may normalise, for the day the source answers with
+# more than a page.
 MAX_RESULTS = 60
 
 _scraper = None
@@ -82,7 +85,7 @@ def _normalize_titles(titles: list) -> list[dict]:
 
 
 def search(query: str, dubbed_only: bool = False,
-           media_type: str | None = None) -> list[dict]:
+           media_type: str | None = None, page: int = 1) -> list[dict]:
     """Search AnimeUnity. Handles the Laravel CSRF token.
 
     Uses ``/archivio/get-animes`` rather than ``/livesearch``. The latter is
@@ -95,7 +98,7 @@ def search(query: str, dubbed_only: bool = False,
     ``dubbed_only`` keeps the Italian dubs; a dubbed anime is its own record on
     this source — same show, separate id and slug, "(ITA)" in the title.
     ``media_type`` is the source's own classification: Movie, TV, OVA, ONA,
-    Special.
+    Special. ``page`` is 1-based and becomes the endpoint's row offset.
     """
     scraper = _get_scraper()
     host = ANIMEUNITY_HOST
@@ -138,7 +141,7 @@ def search(query: str, dubbed_only: bool = False,
     # Both filters go to the source rather than being applied to what comes
     # back: filtering here could only ever narrow one page, and would answer
     # "no Italian dub" for a show whose dub sat on page two.
-    payload = {"title": query, "offset": 0}
+    payload = {"title": query, "offset": (max(page, 1) - 1) * ARCHIVE_PAGE}
     if dubbed_only:
         payload["dubbed"] = 1
     if media_type:

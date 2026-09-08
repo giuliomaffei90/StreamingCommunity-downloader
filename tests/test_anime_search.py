@@ -156,3 +156,21 @@ def test_a_record_with_neither_is_still_usable(source):
 
     assert result["plot"] == ""
     assert result["genres"] == []
+
+
+def test_the_page_number_becomes_a_row_offset(source):
+    """The archive endpoint counts rows, not pages, and answers ARCHIVE_PAGE of
+    them at a time. Getting this wrong re-fetches rows already on screen."""
+    scraper = source([_record(1)])
+
+    animeunity.search("show", page=3)
+
+    assert scraper.payload["offset"] == 2 * animeunity.ARCHIVE_PAGE
+
+
+def test_the_first_page_starts_at_the_top(source):
+    scraper = source([_record(1)])
+
+    animeunity.search("show")
+
+    assert scraper.payload["offset"] == 0

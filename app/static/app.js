@@ -817,31 +817,31 @@ function _showSearchSkeletons() {
   }
 }
 
-async function doSearch() {
-  const q = document.getElementById('search-input').value.trim();
-  if (!q) return;
-  if (!currentDomain && currentSource !== 'animeunity') { openSettings(); return; }
-  // Cancel previous in-flight request
-  if (_searchAbort) _searchAbort.abort();
-  _searchAbort = new AbortController();
-  const btn = document.getElementById('search-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cerca';
-  _showSearchSkeletons();
-  try {
-    const searchParams = new URLSearchParams({ q, source: currentSource });
-    if (currentSource === 'animeunity' && document.getElementById('dub-only')?.checked) {
-      searchParams.set('dubbed_only', 'true');
-    }
-    const mediaType = document.getElementById('type-select')?.value;
-    if (mediaType) searchParams.set('media_type', mediaType);
-    const res = await fetch(`/api/search?${searchParams}`, {signal: _searchAbort.signal});
-    const container = document.getElementById('search-results');
-    const results = await safeJson(res);
-    if (!res.ok) { container.innerHTML=`<div class="col-12"><div class="alert alert-danger">${results.detail||'Errore'}</div></div>`; return; }
-    if (!results.length) { container.innerHTML='<div class="col-12"><p class="text-muted">Nessun risultato.</p></div>'; return; }
-    container.innerHTML = '';
-    results.forEach((item, idx) => {
+// How many rows the last page brought back. Both sources page, in lots of a
+// size they choose (30 and 60), so rather than hardcoding either we remember
+// what a full page looked like: a short one means the end of the results.
+let _searchPage = 1;
+let _searchPageSize = 0;
+
+function _searchParams(q, page) {
+  const p = new URLSearchParams({ q, source: currentSource });
+  if (currentSource === 'animeunity' && document.getElementById('dub-only')?.checked) {
+    p.set('dubbed_only', 'true');
+  }
+  const mediaType = document.getElementById('type-select')?.value;
+  if (mediaType) p.set('media_type', mediaType);
+  if (page > 1) p.set('page', String(page));
+  return p;
+}
+
+function _setMoreVisible(visible) {
+  const wrap = document.getElementById('search-more-wrap');
+  if (wrap) wrap.style.display = visible ? '' : 'none';
+}
+
+// `idx` indexes _searchResults, which accumulates across pages — openDetailModal
+// looks the item up by it, so it cannot be the position within one page.
+function _resultCard(item, idx) {
       const isMovie = item.type==='movie';
       const year = itemYear(item);
       const score = item.score ? parseFloat(item.score).toFixed(1) : null;
@@ -878,15 +878,73 @@ async function doSearch() {
             </div>
           </div>
         </div>`;
-      container.appendChild(card);
-    });
-    _searchResults = results;
+      return card;
+}
+
+function _appendResults(results) {
+  const container = document.getElementById('search-results');
+  const base = _searchResults.length;
+  results.forEach((item, i) => container.appendChild(_resultCard(item, base + i)));
+  _searchResults = _searchResults.concat(results);
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  if (!currentDomain && currentSource !== 'animeunity') { openSettings(); return; }
+  // Cancel previous in-flight request
+  if (_searchAbort) _searchAbort.abort();
+  _searchAbort = new AbortController();
+  const btn = document.getElementById('search-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cerca';
+  _showSearchSkeletons();
+  _setMoreVisible(false);
+  try {
+    const res = await fetch(`/api/search?${_searchParams(q, 1)}`, {signal: _searchAbort.signal});
+    const container = document.getElementById('search-results');
+    const results = await safeJson(res);
+    if (!res.ok) { container.innerHTML=`<div class="col-12"><div class="alert alert-danger">${results.detail||'Errore'}</div></div>`; return; }
+    if (!results.length) { container.innerHTML='<div class="col-12"><p class="text-muted">Nessun risultato.</p></div>'; return; }
+    container.innerHTML = '';
+    _searchResults = [];
+    _searchPage = 1;
+    _searchPageSize = results.length;
+    _appendResults(results);
+    _setMoreVisible(true);
   } catch(e) {
     if (e.name === 'AbortError') return; // cancelled by new search
     const container = document.getElementById('search-results');
     container.innerHTML=`<div class="col-12"><div class="alert alert-danger">Errore: ${escapeHtml(e.message)}</div></div>`;
   } finally {
     btn.disabled=false; btn.innerHTML='<i class="ti ti-search me-1"></i>Cerca';
+  }
+}
+
+async function loadMoreResults() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('search-more-btn');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Carico...';
+  try {
+    // No AbortController here: this one must not be cancelled by the debounce
+    // that fires while somebody is still typing in the box.
+    const res = await fetch(`/api/search?${_searchParams(q, _searchPage + 1)}`);
+    const results = await safeJson(res);
+    if (!res.ok) { showToast(results.detail || 'Errore', 'danger'); return; }
+    _searchPage += 1;
+    _appendResults(results);
+    // A page that came back short is the last one there is.
+    if (results.length < _searchPageSize) {
+      _setMoreVisible(false);
+      if (!results.length) showToast('Nessun altro risultato', 'info');
+    }
+  } catch(e) {
+    showToast('Errore di rete', 'danger');
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
   }
 }
 
