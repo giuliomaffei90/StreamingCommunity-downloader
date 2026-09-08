@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working conventions
+
+- **Work directly on `main`.** Do not create a branch unless explicitly asked for one. This is a
+  solo private repository with no collaborators, so a branch buys nothing and costs a
+  merge-and-clean round trip afterwards.
+- **Never push on your own initiative** — not even after a commit that was asked for. Committing is
+  expected; pushing is the user's decision. Say plainly when commits are waiting unpushed.
+- **Commit each requested change**, without being told to each time. One commit per request, made
+  after the change is verified. Splitting genuinely separate work across several commits is fine;
+  leaving work uncommitted is not.
+
 ## Project Overview
 
 A **macOS desktop app** that searches and downloads films, TV series and anime from
