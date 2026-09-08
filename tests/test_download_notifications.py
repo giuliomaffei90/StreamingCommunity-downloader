@@ -87,6 +87,7 @@ def test_an_error_is_stripped_of_its_query_string(manager, delivered):
     assert "https://vixcloud.co/playlist/123" in delivered[0]["message"]
 
 
+@pytest.mark.real_notifier
 def test_a_notification_the_user_switched_off_is_not_posted(manager, monkeypatch):
     """The setting is read at post time, not cached at import."""
     from app import notify as notifier

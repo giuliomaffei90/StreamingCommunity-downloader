@@ -12,9 +12,9 @@ from app import history
 from app.jobs import JobManager
 
 
-@pytest.fixture(autouse=True)
-def ledger(tmp_path, monkeypatch):
-    monkeypatch.setattr(history, "HISTORY_FILE", tmp_path / "downloads.json")
+@pytest.fixture
+def ledger(tmp_path):
+    """The path conftest's _isolated_history already points the module at."""
     return tmp_path / "downloads.json"
 
 
@@ -179,3 +179,78 @@ def test_sidecar_subtitles_count_as_part_of_the_download(manager, tmp_path):
     assert files._wanted(video, own)
     # Written beside the video by the same download, though no job returned it.
     assert str(video.with_suffix("")) + ".vtt" in own
+
+
+# ── The list outlives the app ─────────────────────────────────────────────────
+
+def test_finished_downloads_come_back_too(manager):
+    """The list is cleared by the user, not by closing the app."""
+    done = _job(manager, title="Film", status="done")
+    done.output_path = "/videos/Film.mp4"
+    history.record(done)
+    history.record(_job(manager, title="Fallito", status="error"))
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    titles = {j.title: j.status for j in fresh.list_jobs_raw()}
+    assert titles == {"Film": "done", "Fallito": "error"}
+
+
+def test_a_restored_download_keeps_where_its_file_went(manager):
+    """Otherwise "mostra nel Finder" has nothing to open."""
+    done = _job(manager, title="Film", status="done")
+    done.output_path = "/videos/Film.mp4"
+    history.record(done)
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    assert fresh.get(done.job_id).output_path == "/videos/Film.mp4"
+
+
+def test_a_restored_download_keeps_its_steps(manager):
+    """A card with no phases draws an empty strip where the steps were."""
+    job = _job(manager, title="Film", status="done", phases=["video", "merging", "done"])
+    history.record(job)
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    assert fresh.get(job.job_id).phases == ["video", "merging", "done"]
+
+
+def test_a_finished_download_reads_as_complete(manager):
+    job = _job(manager, title="Film", status="done")
+    history.record(job)
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    assert fresh.get(job.job_id).progress["pct"] == 100
+
+
+def test_the_original_order_survives(manager):
+    """The list sorts by when the download started, not when it was restored."""
+    first = _job(manager, title="Primo", status="done")
+    history.record(first)
+    second = _job(manager, title="Secondo", status="done")
+    history.record(second)
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    assert fresh.get(first.job_id).created_at < fresh.get(second.job_id).created_at
+
+
+def test_dismissing_a_card_stops_it_coming_back(manager):
+    """Clearing the list has to mean it, or nothing could ever be cleared."""
+    job = _job(manager, title="Film", status="done")
+    history.record(job)
+    manager._jobs[job.job_id] = job
+    manager.dismiss(job.job_id)
+
+    fresh = JobManager()
+    fresh.restore_from_history()
+
+    assert fresh.get(job.job_id) is None

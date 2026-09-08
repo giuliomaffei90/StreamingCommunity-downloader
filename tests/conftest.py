@@ -7,6 +7,42 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
+def _no_real_notifications(request, monkeypatch):
+    """Nothing in the suite may reach the Notification Centre.
+
+    app/notify.py shells out to osascript, so a test that walks the domain
+    recovery flow or finishes a job posted a real notification on the machine
+    running it — announcing "example.test" and the fixture's replacement domain
+    to whoever happened to be at the keyboard. Autouse and global, because the
+    fault was that each test had to remember, and none did.
+
+    A test that means to exercise notify() itself marks itself
+    ``@pytest.mark.real_notifier`` and stubs the subprocess call instead.
+    """
+    if "real_notifier" in request.keywords:
+        return
+
+    from app import notify
+
+    monkeypatch.setattr(notify, "notify", lambda title, message: True)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_history(tmp_path, monkeypatch):
+    """No test may write to the real download ledger.
+
+    JobManager records every job it runs, so any test that submits one wrote
+    into the user's own history — 288 fixture entries had accumulated there,
+    and with the list now restored on startup they would all have shown up in
+    the app. Autouse and global, for the same reason as the notifications
+    above: relying on each test to remember is what failed.
+    """
+    from app import history
+
+    monkeypatch.setattr(history, "HISTORY_FILE", tmp_path / "downloads.json")
+
+
+@pytest.fixture(autouse=True)
 def _configured_domain(tmp_path, monkeypatch):
     """Give every test a configured source domain, in a throwaway file.
 
