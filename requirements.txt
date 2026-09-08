@@ -12,5 +12,5 @@ m3u8
 fastapi
 uvicorn[standard]
 jinja2
+pywebview
 cloudscraper
-apprise

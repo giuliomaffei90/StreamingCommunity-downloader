@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import sys
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -15,7 +16,7 @@ from app import __version__, downloads_hooks, downloads_notify
 from app.core import domain_recovery
 from app.jobs import job_manager
 from app.schedule import ScheduleStore
-from app.config import SCHEDULE_FILE
+from app.config import SCHEDULE_FILE, VIDEOS_DIR
 from app.routers import (
     domain, search, tv, downloads, progress, files, images, anime,
     metadata as metadata_router, download_hooks,
@@ -28,7 +29,10 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).parent
+# PyInstaller unpacks the bundle somewhere it chooses and points sys._MEIPASS
+# at it. __file__ is inside a zipped archive there, so the templates and static
+# files it would resolve to do not exist as paths.
+BASE_DIR = (Path(sys._MEIPASS) / "app") if getattr(sys, "frozen", False) else Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
 
@@ -76,6 +80,10 @@ class VersionedStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The default destination, created up front rather than on the first
+    # download: it is where the settings say files will go, and a folder the
+    # user is told about but cannot find reads as something already broken.
+    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     downloads_notify.register_batch_listener()
     # Registered after the notification one so outbound side effects cannot
     # delay or swallow the user's own notification.

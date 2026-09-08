@@ -4,3 +4,4 @@
 
 httpx        # required by fastapi.testclient
 pytest
+pyinstaller

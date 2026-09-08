@@ -29,3 +29,7 @@ schedule.json
 
 # Lock file held by config.update_data()
 data.json.lock
+
+# Build artifacts (PyInstaller)
+build/
+dist/

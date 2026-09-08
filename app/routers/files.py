@@ -3,10 +3,11 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -15,8 +16,6 @@ from app.config import VIDEOS_DIR, DATA_FILE
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/files", tags=["files"])
 
-# Browsing and streaming is separate from mutating: a user may be allowed to
-# watch the library without being able to delete half of it.
 
 
 def _safe_path(rel_path: str) -> Path:
@@ -391,3 +390,46 @@ async def batch_delete(body: BatchDeleteRequest):
         raise HTTPException(status_code=400, detail="Nessun file selezionato")
     results = await asyncio.to_thread(_batch_delete_sync, body.paths)
     return {"results": results}
+
+
+# ── Choosing a folder ─────────────────────────────────────────────────────────
+
+# AppleScript, not a path typed into a text box. A library path is the one
+# setting where a typo costs a whole download before anything complains, and the
+# user cannot see the filesystem from inside the window. The panel and the
+# person are on the same machine — that is what makes this possible at all, and
+# it is only true because this is an app rather than a server.
+_CHOOSE_FOLDER = """on run argv
+    activate
+    set chosen to choose folder with prompt (item 1 of argv)
+    return POSIX path of chosen
+end run"""
+
+# No timeout: the dialog stays open until the user answers it, and picking a
+# folder on an external drive that has to spin up is not a failure.
+_PICK_PROMPT = "Scegli la cartella di destinazione"
+
+
+def _choose_folder_sync() -> str | None:
+    """The chosen folder, or None if the user cancelled."""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", _CHOOSE_FOLDER, _PICK_PROMPT],
+            capture_output=True, text=True,
+        )
+    except OSError as exc:
+        logger.warning("Folder picker did not start: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Impossibile aprire il selettore")
+
+    if result.returncode != 0:
+        # Cancelling is the ordinary way out of a dialog, not an error.
+        return None
+    # AppleScript returns a directory path with a trailing slash; every other
+    # layer stores them without one.
+    return result.stdout.strip().rstrip("/") or None
+
+
+@router.post("/pick-folder")
+async def pick_folder():
+    path = await asyncio.to_thread(_choose_folder_sync)
+    return {"path": path}

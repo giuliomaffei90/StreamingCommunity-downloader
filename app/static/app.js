@@ -811,6 +811,30 @@ async function loadLibraries() {
   } catch(e) { console.error('loadLibraries:', e); }
 }
 const _LIB_TYPE_OPTIONS = [{value:'film',label:'Film'},{value:'tv',label:'Serie TV'},{value:'anime',label:'Anime'}];
+// The native chooser, so a library path does not have to be typed from memory.
+// It writes into the same input as before: nothing downstream cares where the
+// value came from, and typing one by hand still works.
+async function browseLibrary(index) {
+  const btn = document.getElementById(`lib-browse-${index}`);
+  const input = document.getElementById(`lib-path-${index}`);
+  if (!input) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/files/pick-folder', {method: 'POST'});
+    if (!res.ok) { showToast('Impossibile aprire il selettore', 'danger'); return; }
+    const data = await safeJson(res);
+    // A cancelled dialog answers with null: leave what was already there.
+    if (data.path) {
+      input.value = data.path;
+      _libraries[index].path = data.path;
+    }
+  } catch (e) {
+    showToast('Errore di rete', 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function renderLibrariesList() {
   const c = document.getElementById('libraries-list');
   if (!c) return;
@@ -825,7 +849,8 @@ function renderLibrariesList() {
     return `
     <div class="row g-2 mb-2 align-items-center">
       <div class="col-4"><select class="form-select form-select-sm" id="lib-type-${i}"><option value="">Tipo...</option>${opts}</select></div>
-      <div class="col"><input type="text" class="form-control form-control-sm" id="lib-path-${i}" value="${escapeHtml(lib.path)}" placeholder="/srv/nfs/films"></div>
+      <div class="col"><input type="text" class="form-control form-control-sm" id="lib-path-${i}" value="${escapeHtml(lib.path)}" placeholder="/Users/tuonome/Movies/Film"></div>
+      <div class="col-auto"><button class="btn btn-sm btn-outline-secondary" id="lib-browse-${i}" onclick="browseLibrary(${i})" title="Scegli cartella"><i class="ti ti-folder-open"></i></button></div>
       <div class="col-auto"><button class="btn btn-sm btn-outline-danger" onclick="removeLibrary(${i})"><i class="ti ti-trash"></i></button></div>
     </div>`;
   }).join('');
