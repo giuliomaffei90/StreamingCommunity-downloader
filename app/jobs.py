@@ -112,6 +112,11 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def list_jobs_raw(self) -> list:
+        """The job objects themselves. Only tests need these; the API wants dicts."""
+        with self._lock:
+            return list(self._jobs.values())
+
     def list_jobs(self) -> list[dict]:
         with self._lock:
             return [self._job_to_dict(j) for j in self._jobs.values()]
@@ -681,29 +686,52 @@ class JobManager:
         return job.job_id
 
     def restore_from_history(self):
-        """Bring back what the previous run left unfinished, as failed jobs.
+        """Rebuild the whole download list from the ledger.
 
-        Nothing is resumed — a half-written download is not something to pick up
-        mid-stream. The point is that it stops disappearing: it comes back in
-        the list saying it was interrupted, with the call rebuilt from the
-        recorded parameters so Riprova works on it like on any other failure.
+        The list survives a restart and is cleared by the user, not by closing
+        the app — the same bargain a torrent client makes, and for the same
+        reason: what was downloaded, what failed and what was cut short is a
+        record worth keeping until somebody looks at it.
+
+        Nothing is resumed. A half-written download is not something to pick up
+        mid-stream, so anything caught in flight comes back as failed, with the
+        call rebuilt from the recorded parameters so Riprova works on it like on
+        any other failure.
         """
         from app import history
 
-        for entry in history.close_interrupted():
-            call_type, params = entry.get("call_type"), entry.get("params")
+        history.close_interrupted()
+        for entry in reversed(history.all_records()):
+            status = entry.get("status") or "error"
+            if status == history.INTERRUPTED:
+                status = "error"
+            # Anything still claiming to be under way has no worker behind it.
+            if status in ("queued", "running", "scheduled"):
+                status = "error"
+
+            try:
+                created = datetime.fromisoformat(entry["created_at"])
+            except (KeyError, ValueError):
+                created = datetime.now(timezone.utc)
+
             job = DownloadJob(
                 job_id=entry["job_id"],
                 title=entry.get("title") or "?",
                 type=entry.get("type") or "film",
-                status="error",
-                created_at=datetime.now(timezone.utc),
-                error=entry.get("error") or "Interrotto",
+                status=status,
+                created_at=created,
+                error=entry.get("error"),
+                output_path=entry.get("output_path"),
+                phases=list(entry.get("phases") or []),
                 media_label=entry.get("media_label"),
                 year=entry.get("year"),
                 season=entry.get("season"),
                 episode_number=entry.get("episode_number"),
             )
+            if status == "done":
+                job.progress = {"current": 1, "total": 1, "pct": 100, "speed": 0, "eta": None}
+
+            call_type, params = entry.get("call_type"), entry.get("params")
             if call_type and params:
                 try:
                     job.call = self._build_call(call_type, params, job)
@@ -713,7 +741,7 @@ class JobManager:
                     logger.exception("Cannot rebuild %s from history", entry["job_id"])
             with self._lock:
                 self._jobs[job.job_id] = job
-            logger.info("Restored interrupted download %s (%s)", job.job_id, job.title)
+        logger.info("Restored %d downloads from history", len(self._jobs))
 
     def load_scheduled_from_store(self):
         """Re-hydrate pending scheduled entries from the JSON store on startup."""

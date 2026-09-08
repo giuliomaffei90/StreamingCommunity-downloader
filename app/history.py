@@ -5,9 +5,11 @@ lose it: the list came back empty and a download interrupted half way through
 left nothing behind saying so. This is the ledger that survives, and it answers
 two different questions with the same records:
 
-* **What was in flight when the app closed?** Anything left non-terminal is
-  marked ``interrupted`` on the next start, so it shows in the list as failed
-  and can be run again rather than silently never having happened.
+* **What was the download list?** The whole list is rebuilt from here on start
+  and cleared by the user, not by closing the app — the same bargain a torrent
+  client makes. Anything left non-terminal is marked ``interrupted`` first, so
+  it comes back as failed and can be run again rather than claiming to still be
+  going.
 * **Which files on disk did this app produce?** The download folder is very
   often one the user already keeps things in, so "every video under it" is not
   the same question as "what did I download", and only the ledger knows.
@@ -86,6 +88,7 @@ def record(job, *, call_type: str | None = None, params: dict | None = None) -> 
             "year": job.year,
             "season": job.season,
             "episode_number": job.episode_number,
+            "phases": list(job.phases or []),
             "created_at": job.created_at.isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
