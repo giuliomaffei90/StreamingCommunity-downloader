@@ -12,6 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Commit each requested change**, without being told to each time. One commit per request, made
   after the change is verified. Splitting genuinely separate work across several commits is fine;
   leaving work uncommitted is not.
+- **Never build on your own initiative.** `scripts/build-release.sh` (and the `build` skill) run
+  only when asked for. A build closes the running app, takes a minute, and replaces what is in
+  ~/Downloads — none of which belongs in the middle of some other task. Verify changes by running
+  from source instead.
 
 ## Project Overview
 
