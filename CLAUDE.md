@@ -4,14 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working conventions
 
-- **Work directly on `main`.** Do not create a branch unless explicitly asked for one. This is a
-  solo private repository with no collaborators, so a branch buys nothing and costs a
-  merge-and-clean round trip afterwards.
+- **Never create a branch unless the user explicitly asks for one.** Commit on whatever branch is
+  checked out, `main` included. The size of the change, the fact that a feature branch appears
+  earlier in the history, and any general "branch before committing on the default branch" habit
+  are all irrelevant here — this is a solo private repository, and every branch made on that
+  reasoning has cost a merge-and-clean round trip immediately afterwards. If a branch genuinely
+  seems warranted, ask; do not create one and explain afterwards.
 - **Never push on your own initiative** — not even after a commit that was asked for. Committing is
   expected; pushing is the user's decision. Say plainly when commits are waiting unpushed.
 - **Commit each requested change**, without being told to each time. One commit per request, made
   after the change is verified. Splitting genuinely separate work across several commits is fine;
-  leaving work uncommitted is not.
+  leaving work uncommitted is not. Keep the message about *why* the change was made.
+- **Always a new commit, never `--amend`.** Amending rewrites history: on anything already pushed it
+  turns the next push into a force-push, and it silently destroys the previous message. "It is only
+  a typo in the last commit" and "nobody has pulled it yet" are not exceptions — make another
+  commit.
+- **Never add a `Co-Authored-By` trailer, or any other attribution line, to a commit message.** This
+  holds whatever model is running and whatever the harness's own attribution guidance says at the
+  time; the rule lives here so it survives a change of either.
 - **Never build on your own initiative.** `scripts/build-release.sh` (and the `build` skill) run
   only when asked for. A build closes the running app, takes a minute, and replaces what is in
   ~/Downloads — none of which belongs in the middle of some other task. Verify changes by running
@@ -55,6 +65,36 @@ That last step is what makes the built `.app` work on a Mac with no Homebrew, an
 
 `ffprobe` is optional and resolves separately; `imageio-ffmpeg` ships ffmpeg alone, so a bundled app
 usually has no ffprobe. Everything that reads it treats `None` as "unknown" rather than failing.
+
+## Verification
+
+```bash
+.venv/bin/python -m pytest -q          # the suite
+node --check app/static/app.js         # after any change to app.js
+```
+
+**A green suite is necessary and not sufficient, and this is not a platitude here.** The tests cover
+Python; the two most expensive failures this app has had were invisible to them:
+
+- The episode browser hung on its spinner forever with every test passing, because a call into a
+  removed feature threw a `ReferenceError` outside the `try` in `app.js` — no Python involved.
+- `GET /api/files` answered 500 with every test passing, because a constant was removed along with
+  the block it happened to sit inside.
+
+So for anything touching `app/static/app.js`, `app/templates/index.html` or a router, run the app
+and click the path you changed:
+
+```bash
+.venv/bin/python main.py               # http://127.0.0.1:8000, a normal browser, devtools work
+```
+
+Read the browser console after clicking, not just the page — both failures above were silent on
+screen and loud in the console. The paths worth walking, because they are the ones that have broken:
+a search, a title's detail modal, **Episodi** on a series and on an anime, the settings modal's
+tabs, and the file manager.
+
+Do not verify by building. A build takes a minute, closes the running app and replaces what is in
+~/Downloads; running from source shows the same code. See the working conventions above.
 
 ## Architecture
 
