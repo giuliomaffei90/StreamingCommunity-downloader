@@ -2,10 +2,20 @@
 
     python icon/make_icon.py
 
-Drawn rather than designed in a graphics app so the icon is regenerable and its
-colours stay tied to the interface's own: ``--accent`` and ``--bg-base`` from
-app/templates/index.html. Change them there and here together, or the app and
-its icon drift apart.
+**The icon is a red plate with a white glyph. Keep it that way.** Whatever else
+changes here, that pair is the app's identity — a red tile in the Dock with a
+white download mark on it — and it is the one thing not to redesign in passing.
+
+Drawn rather than designed in a graphics app so the icon is regenerable. The
+mark is the plain download arrow: a stem, a chevron and the tray it lands in,
+all stroked with round caps, which is what makes it legible at 16px where a
+filled triangle turns into a smudge.
+
+The plate is treated the way macOS treats glass: light collects along the top
+edge, falls off over the upper third, and bounces back faintly off the bottom.
+The glyph sits above that on a soft shadow. All of it is cheap compositing —
+gradients, masks and one blur — because the alternative is an SVG renderer and
+a new dependency for one file that is regenerated a few times a year.
 
 Everything is drawn at 4x and downsampled with LANCZOS at the end. PIL's
 ImageDraw does not anti-alias, so shapes drawn at final size come out with
@@ -20,7 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 HERE = Path(__file__).parent
 
@@ -41,9 +51,39 @@ ACCENT_TOP = (240, 58, 48)
 ACCENT_BOTTOM = (163, 16, 16)
 GLYPH = (255, 255, 255)
 
+# The download mark, in its own 512-unit square. Stroke centres, so every
+# coordinate is the middle of a 42-wide stroke with a round cap on each end.
+GLYPH_BOX = 512
+STROKE = 42
+STEM = ((256, 88), (256, 312))
+CHEVRON = ((152, 230), (256, 334), (360, 230))
+TRAY = (97, 300, 415, 438)  # a rounded rectangle with its top half cut away
+TRAY_RADIUS = 52
+TRAY_TOP = 352  # where the two open ends of the tray stop
+
+# What the mark measures once its stroke is included, and where the middle of
+# that is: the glyph is centred by its ink, not by its coordinate box, or it
+# hangs low on the plate.
+GLYPH_TOP = STEM[0][1] - STROKE / 2
+GLYPH_BOTTOM = TRAY[3] + STROKE / 2
+# Of the plate. Chosen at 16px, not at 1024: at 0.52 the mark was still
+# balanced large but had gone to a smudge in the menu bar.
+GLYPH_HEIGHT = 0.64
+
+
+def _fade(size: int, alpha) -> Image.Image:
+    """A vertical alpha ramp, built one row at a time and stretched sideways.
+
+    ``alpha`` takes a position from 0 (top) to 1 (bottom) and returns 0-255.
+    """
+    column = Image.new("L", (1, size))
+    pixels = column.load()
+    for y in range(size):
+        pixels[0, y] = max(0, min(255, round(alpha(y / (size - 1)))))
+    return column.resize((size, size), Image.Resampling.BILINEAR)
+
 
 def _gradient(size: int) -> Image.Image:
-    """A vertical gradient, built one row at a time and stretched sideways."""
     column = Image.new("RGB", (1, size))
     pixels = column.load()
     for y in range(size):
@@ -55,46 +95,134 @@ def _gradient(size: int) -> Image.Image:
     return column.resize((size, size), Image.Resampling.BILINEAR)
 
 
-def _plate(size: int) -> Image.Image:
-    """The rounded square, gradient-filled, on a transparent canvas."""
+def _plate_mask(size: int) -> Image.Image:
     scale = size / SIZE
     plate, radius = PLATE * scale, PLATE_RADIUS * scale
     inset = (size - plate) / 2
-
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle(
         (inset, inset, inset + plate, inset + plate), radius=radius, fill=255
     )
-
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.paste(_gradient(size), (0, 0), mask)
-    return canvas
+    return mask
 
 
-def _arrow(canvas: Image.Image, size: int):
-    """A download arrow: stem, head, and the line it lands on.
+def _glass(canvas: Image.Image, size: int, plate: Image.Image):
+    """Light on the plate: a rim along the top, a sheen under it, a bottom bounce.
 
-    Sized generously. An icon is read at 16px far more often than at 1024, and
-    a glyph that looks balanced large turns to mush small.
+    Every layer is multiplied by the plate mask before it lands, so nothing
+    spills past the rounded corners into the transparent margin.
     """
     scale = size / SIZE
-    draw = ImageDraw.Draw(canvas)
+    inset = (size - PLATE * scale) / 2
+    radius = PLATE_RADIUS * scale
 
-    def at(*values):
-        return [v * scale for v in values]
+    # The sheen: brightest at the very top, gone by a little under halfway.
+    # Blurred so it has no edge of its own — an edge here reads as a second
+    # shape sitting on the plate rather than as light.
+    sheen = _fade(size, lambda t: 150 * max(0.0, 1 - t / 0.46) ** 1.7)
+    sheen = sheen.filter(ImageFilter.GaussianBlur(28 * scale))
+    canvas.paste(Image.new("RGB", (size, size), (255, 255, 255)),
+                 (0, 0), ImageChops.multiply(sheen, plate))
 
-    # Stem
-    draw.rounded_rectangle(at(468, 268, 556, 590), radius=44 * scale, fill=GLYPH)
-    # Head
-    draw.polygon(at(346, 536, 678, 536, 512, 736), fill=GLYPH)
-    # The line it lands on
-    draw.rounded_rectangle(at(330, 772, 694, 838), radius=33 * scale, fill=GLYPH)
+    # The rim: a hairline of near-white just inside the top edge, following the
+    # corners round and fading out before it reaches the sides. This is the one
+    # detail that makes the plate read as glass rather than as flat paint.
+    rim_width = 7 * scale
+    rim = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(rim).rounded_rectangle(
+        (inset + rim_width / 2, inset + rim_width / 2,
+         inset + PLATE * scale - rim_width / 2, inset + PLATE * scale - rim_width / 2),
+        radius=radius, outline=255, width=round(rim_width),
+    )
+    rim = rim.filter(ImageFilter.GaussianBlur(2.5 * scale))
+    rim = ImageChops.multiply(rim, _fade(size, lambda t: 235 * max(0.0, 1 - t / 0.34) ** 1.1))
+    canvas.paste(Image.new("RGB", (size, size), (255, 255, 255)),
+                 (0, 0), ImageChops.multiply(rim, plate))
+
+    # Light bouncing back off whatever the icon is sitting on. Faint on purpose:
+    # visible at 512, and at 16px it is doing nothing but keeping the bottom
+    # edge from going dead flat.
+    bounce = ImageChops.multiply(
+        rim, _fade(size, lambda t: 150 * max(0.0, (t - 0.72) / 0.28) ** 1.4)
+    )
+    canvas.paste(Image.new("RGB", (size, size), (255, 214, 208)),
+                 (0, 0), ImageChops.multiply(bounce, plate))
+
+
+def _glyph_mask(size: int) -> Image.Image:
+    """The download mark, drawn in its own square and placed on the plate.
+
+    Strokes are lines plus a disc at every vertex: PIL draws neither round caps
+    nor round joins, and without the discs the chevron comes to a chiselled
+    point and the stem ends in a flat edge.
+    """
+    scale = size / SIZE
+    span = PLATE * scale * GLYPH_HEIGHT / (GLYPH_BOTTOM - GLYPH_TOP)
+    mid_x, mid_y = GLYPH_BOX / 2, (GLYPH_TOP + GLYPH_BOTTOM) / 2
+
+    def at(x, y):
+        return (size / 2 + (x - mid_x) * span, size / 2 + (y - mid_y) * span)
+
+    width = STROKE * span
+    mask = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+
+    def stroke(points):
+        radius = width / 2
+        placed = [at(*p) for p in points]
+        for start, end in zip(placed, placed[1:]):
+            draw.line((*start, *end), fill=255, width=round(width))
+        for x, y in placed:
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+
+    stroke(STEM)
+    stroke(CHEVRON)
+
+    # The tray is a rounded rectangle with its top half taken off, which is what
+    # gives the two bottom corners a proper radius. Drawn on its own layer so
+    # the cut does not take the arrow with it.
+    tray = Image.new("L", (size, size), 0)
+    tray_draw = ImageDraw.Draw(tray)
+    # Grown by half a stroke on every side: PIL puts an outline's *outer* edge
+    # on the rectangle and thickens inward, so without this the stroke centre
+    # lands half a width in from TRAY and the round caps below, placed on TRAY
+    # itself, stick out of the corners as two knobs.
+    half = width / 2
+    left, top = at(TRAY[0], TRAY[1])
+    right, bottom = at(TRAY[2], TRAY[3])
+    tray_draw.rounded_rectangle(
+        (left - half, top - half, right + half, bottom + half),
+        radius=TRAY_RADIUS * span + half, outline=255, width=round(width),
+    )
+    cut = at(0, TRAY_TOP)[1]
+    tray_draw.rectangle((0, 0, size, cut), fill=0)
+    # Round caps for the two ends the cut just left square.
+    for x in (TRAY[0], TRAY[2]):
+        cx, cy = at(x, TRAY_TOP)
+        radius = width / 2
+        tray_draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=255)
+
+    return ImageChops.lighter(mask, tray)
 
 
 def render(size: int = SIZE) -> Image.Image:
     big = size * SCALE
-    canvas = _plate(big)
-    _arrow(canvas, big)
+    plate = _plate_mask(big)
+
+    canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    canvas.paste(_gradient(big), (0, 0), plate)
+    _glass(canvas, big, plate)
+
+    # The glyph floats: a blurred dark copy dropped below it separates the white
+    # from the red, which at small sizes is the difference between a mark and a
+    # hole in the plate.
+    glyph = _glyph_mask(big)
+    shadow = glyph.filter(ImageFilter.GaussianBlur(11 * big / SIZE))
+    shadow = shadow.point(lambda v: round(v * 0.42))
+    canvas.paste(Image.new("RGB", (big, big), (86, 6, 6)),
+                 (0, round(9 * big / SIZE)), ImageChops.multiply(shadow, plate))
+    canvas.paste(Image.new("RGB", (big, big), GLYPH), (0, 0), glyph)
+
     return canvas.resize((size, size), Image.Resampling.LANCZOS)
 
 
