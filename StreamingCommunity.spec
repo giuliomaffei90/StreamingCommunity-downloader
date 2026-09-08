@@ -11,9 +11,18 @@ in the built app, never when running from source:
 * ``webview`` is collected whole. It injects its own JavaScript into every page
   from files that live beside the module, so a code-only import misses them and
   the window comes up blank.
+* ``random_user_agent`` is collected whole. It reads an 8 MB ``user_agents.zip``
+  from beside the module, and ``core/headers.py`` builds the user-agent of every
+  outbound request through it — so without the archive nothing that touches the
+  network works at all, and the app says so with a FileNotFoundError naming a
+  path inside itself.
 * uvicorn's protocol, loop and lifespan implementations are imported by *name*
   at runtime. Nothing references them statically, so the analysis cannot see
   them and the server dies on its first request.
+
+``certifi`` and ``cloudscraper`` also ship runtime data and are NOT listed here:
+PyInstaller has hooks for both, which put their files under Contents/Resources.
+Adding them would be harmless duplication rather than a fix.
 
 The icon is read from icon/AppIcon.icns, which is committed. Regenerate it with
 ``python icon/make_icon.py`` — that needs Pillow, a development dependency the
@@ -34,7 +43,7 @@ hiddenimports = [
     "uvicorn.loops.uvloop",
 ]
 
-for package in ("imageio_ffmpeg", "webview"):
+for package in ("imageio_ffmpeg", "webview", "random_user_agent"):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries

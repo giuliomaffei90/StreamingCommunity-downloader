@@ -70,6 +70,14 @@ if ! find "$BUILT" -name 'ffmpeg*' -type f | grep -q .; then
   exit 1
 fi
 
+# Searched by name rather than by path: PyInstaller cross-links Frameworks and
+# Resources, and the app resolved it through the other one than it is written to.
+if ! find "$BUILT" -name 'user_agents.zip' -type f | grep -q .; then
+  echo "   MANCA: user_agents.zip — ogni richiesta uscente costruisce il suo" >&2
+  echo "          user-agent da lì, quindi non funzionerebbe niente in rete" >&2
+  exit 1
+fi
+
 VERSION="$("$PYTHON" -c 'import app; print(app.__version__)')"
 
 echo "==> Installazione in $DEST_DIR"
