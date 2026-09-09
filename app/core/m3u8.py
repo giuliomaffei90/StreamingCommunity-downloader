@@ -15,7 +15,6 @@ from m3u8 import M3U8 as M3U8_Lib
 from tqdm.rich import tqdm
 from tqdm import TqdmExperimentalWarning
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
 
 from app.config import get_settings
 from app.core.ffmpeg_path import ffmpeg_file_arg, get_ffmpeg_exe
@@ -24,7 +23,6 @@ from app.core.paths import windows_path_problem
 from app.progress import DownloadCancelledError
 
 warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
-warnings.filterwarnings("ignore", category=UserWarning, module="cryptography")
 
 logger = logging.getLogger(__name__)
 DOWNLOAD_SUB = True
@@ -286,7 +284,7 @@ class Decryption:
         self.iv = bytes.fromhex(raw_iv.replace("0x", ""))
 
     def decrypt_ts(self, encrypted_data):
-        cipher = Cipher(algorithms.AES(self.key), modes.CBC(self.iv), backend=default_backend())
+        cipher = Cipher(algorithms.AES(self.key), modes.CBC(self.iv))
         decryptor = cipher.decryptor()
         return decryptor.update(encrypted_data) + decryptor.finalize()
 
