@@ -147,10 +147,10 @@ Jellyfin *as a media server* is untouched. The output layout still follows its r
 convention, so pointing Jellyfin, Plex or Infuse at the download folder works exactly as before.
 What went away is the app talking to it.
 
-**Accounts, permissions and the request queue went with the login.** An approval means something
-only when the approver and the requester are different people; here they are the same person.
-**Following a series** went too, because it worked by turning each new episode into a *request* —
-without the queue it has nowhere to file what it finds.
+**Accounts, permissions and the request queue went with the login**, unused like the rest of it —
+and an approval would have meant nothing anyway with the approver and the requester being the same
+person. **Following a series** went too: it worked by turning each new episode into a *request*, so
+without the queue it had nowhere to file what it found.
 
 **Docker, the compose templates and the ghcr workflow are gone.** The deliverable is a `.app`, and
 the things this app does are the things a container cannot: open a window, put a progress bar on the
