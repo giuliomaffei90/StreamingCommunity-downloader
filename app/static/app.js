@@ -160,7 +160,7 @@ async function loadDomainStatus() {
       badge.textContent = currentDomain;
     } else {
       badge.className = 'badge bg-danger';
-      badge.textContent = 'Domain non configurato';
+      badge.textContent = t('Domain non configurato');
       openSettings();
     }
   } catch(e) { console.error('loadDomainStatus:', e); }
@@ -206,20 +206,20 @@ async function applyDomainCandidate() {
     });
     if (res.ok) {
       const data = await safeJson(res);
-      showToast(`Dominio aggiornato: ${data.domain}`, 'success');
+      showToast(t('Dominio aggiornato: {domain}', {domain: data.domain}), 'success');
       _domainCandidate = null;
       renderDomainBanner();
       await loadDomainStatus();
     } else {
       const d = await safeJson(res);
-      showToast(d.detail || 'Impossibile applicare il dominio', 'danger');
+      showToast(t(d.detail || 'Impossibile applicare il dominio'), 'danger');
     }
-  } catch (e) { showToast('Errore di rete', 'danger'); }
+  } catch (e) { showToast(t('Errore di rete'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
 async function dismissDomainCandidate() {
-  if (!await scConfirm('Ignorare il dominio trovato? Il pannello resta sul dominio attuale.')) return;
+  if (!await scConfirm(t('Ignorare il dominio trovato? Il pannello resta sul dominio attuale.'))) return;
   try {
     await fetch('/api/domain/candidate/dismiss', {method: 'POST'});
   } catch (e) { /* clearing a banner is best effort */ }
@@ -237,7 +237,7 @@ const TYPE_BADGES = {
   TV:      {label: 'TV',       cls: 'bg-green-lt'},
   OVA:     {label: 'OVA',      cls: 'bg-purple-lt'},
   ONA:     {label: 'ONA',      cls: 'bg-cyan-lt'},
-  Special: {label: 'Speciale', cls: 'bg-orange-lt'},
+  Special: {label: t('Speciale'),  cls: 'bg-orange-lt'},
   movie:   {label: 'Film',     cls: 'bg-blue-lt'},
   tv:      {label: 'TV',       cls: 'bg-green-lt'},
 };
@@ -254,9 +254,10 @@ function typeBadge(item) {
 // rebuilt when the source changes rather than offering one of them options the
 // other cannot answer.
 const TYPE_FILTER_OPTIONS = {
-  streamingcommunity: [['', 'Film e serie TV'], ['movie', 'Solo film'], ['tv', 'Solo serie TV']],
-  animeunity: [['', 'Tutti i tipi'], ['Movie', 'Solo film'], ['TV', 'Solo serie TV'],
-               ['OVA', 'Solo OVA'], ['ONA', 'Solo ONA'], ['Special', 'Solo speciali']],
+  streamingcommunity: [['', t('Film e serie TV')], ['movie', t('Solo film')],
+                       ['tv', t('Solo serie TV')]],
+  animeunity: [['', t('Tutti i tipi')], ['Movie', t('Solo film')], ['TV', t('Solo serie TV')],
+               ['OVA', t('Solo OVA')], ['ONA', t('Solo ONA')], ['Special', t('Solo speciali')]],
 };
 
 function setSource(src) {
@@ -264,7 +265,7 @@ function setSource(src) {
   document.getElementById('src-sc').classList.toggle('active', src === 'streamingcommunity');
   document.getElementById('src-au').classList.toggle('active', src === 'animeunity');
   const input = document.getElementById('search-input');
-  if (input) input.placeholder = src === 'animeunity' ? 'Cerca anime...' : 'Film, serie TV...';
+  if (input) input.placeholder = src === 'animeunity' ? t('Cerca anime...') : t('Film, serie TV...');
   // Only AnimeUnity publishes a dub flag, so the switch would be a dead
   // control on the other source rather than one that simply does nothing.
   const dubFilter = document.getElementById('dub-filter');
@@ -294,8 +295,8 @@ function showPage(page) {
     if (el) el.style.display = p === page ? '' : 'none';
   });
   document.getElementById('page-title').textContent = {
-    search:'Cerca', downloads:'Download', files:'File',
-  }[page] || 'Cerca';
+    search:t('Cerca'), downloads:t('Download'), files:t('File|nav'),
+  }[page] || t('Cerca');
   document.querySelectorAll('.nav-link[data-page]').forEach(el =>
     el.classList.toggle('active', el.dataset.page === page));
   if (page === 'downloads') refreshJobs();
@@ -312,7 +313,7 @@ const _SETTINGS_FEEDBACK_IDS = [
 ];
 
 // FastAPI answers a validation failure with an *array* of error objects, so the
-// `data.detail || 'Errore'` idiom used throughout renders "[object Object]".
+// `t(data.detail || 'Errore')` idiom used throughout renders "[object Object]".
 function _detailText(data) {
   const detail = data && data.detail;
   if (!detail) return '';
@@ -406,6 +407,9 @@ async function saveAllSettings() {
 
 async function openSettings() {
   document.getElementById('domain-input').value = currentDomain;
+  // The page already knows which language it was rendered in; asking the server
+  // for it again would only be a slower way to learn the same thing.
+  document.getElementById('setting-lang').value = document.documentElement.lang;
   _SETTINGS_FEEDBACK_IDS.forEach(id => _feedback(id));
 
   // Cleared on every open so a value changed elsewhere is picked up; within one
@@ -416,6 +420,24 @@ async function openSettings() {
   const tabs = _visibleSettingsTabs();
   await switchSettingsTab(tabs.includes('sorgente') ? 'sorgente' : tabs[0]);
 }
+
+// Changing the language reloads the page: the Italian text lives in the
+// template and in the string literals of this file, so translating what is
+// already on screen would mean re-rendering every list and modal from whatever
+// state it happens to be in. The rest of the modal is saved first — leaving
+// through the language selector must not discard a domain somebody just typed.
+async function setLanguage(lang) {
+  await saveAllSettings();
+  try {
+    await fetch('/api/domain/settings', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({lang}),
+    });
+  } catch (e) { /* reloading in the old language says it plainly enough */ }
+  location.reload();
+}
+
 
 // ── Spazio disco ─────────────────────────────────────────────────────────────
 
@@ -446,7 +468,7 @@ function renderDiskUsage(data) {
   if (!el) return;
   const volumes = (data && data.volumes) || [];
   if (!volumes.length) {
-    el.textContent = data && data.errors && data.errors.length ? 'Spazio non leggibile' : '';
+    el.textContent = data && data.errors && data.errors.length ? t('Spazio non leggibile') : '';
     return;
   }
   // Several distinct mounts is the unusual case; show the fullest, since that
@@ -455,10 +477,11 @@ function renderDiskUsage(data) {
   const pct = worst.total ? Math.round((worst.used / worst.total) * 100) : 0;
   // Amber past 80%, red past 92%: at that point a 4K season may not fit.
   const color = pct >= 92 ? 'text-danger' : pct >= 80 ? 'text-warning' : '';
-  const suffix = volumes.length > 1 ? ` (volume più pieno di ${volumes.length})` : '';
+  const suffix = volumes.length > 1 ? ' ' + t('(volume più pieno di {n})', {n: volumes.length}) : '';
   el.innerHTML =
-    `<i class="ti ti-database me-1"></i><span class="${color}">${fmtBytes(worst.free)} liberi` +
-    `</span> su ${fmtBytes(worst.total)}${suffix}`;
+    `<i class="ti ti-database me-1"></i><span class="${color}">` +
+    t('{free} liberi', {free: fmtBytes(worst.free)}) +
+    `</span> ` + t('su {total}', {total: fmtBytes(worst.total)}) + suffix;
   el.title = worst.paths.join('\n');
 }
 
@@ -558,7 +581,7 @@ async function refreshNamingPreview() {
         line.textContent = slot.error;
       } else {
         line.className = 'form-text';
-        line.textContent = `Esempio: ${slot.preview}`;
+        line.textContent = t('Esempio: {preview}', {preview: slot.preview});
       }
     });
   } catch (e) { /* previews are a convenience; saving still validates */ }
@@ -567,7 +590,7 @@ async function refreshNamingPreview() {
 async function saveNamingTemplates() {
   const btn = document.getElementById('save-naming-btn') || {};
   if (btn) btn.disabled = true;
-  _feedback('naming-feedback', 'Salvataggio...');
+  _feedback('naming-feedback', t('Salvataggio...'));
   try {
     const res = await fetch('/api/domain/settings', {
       method: 'PUT',
@@ -575,22 +598,22 @@ async function saveNamingTemplates() {
       body: JSON.stringify({naming_templates: _collectNamingTemplates()}),
     });
     if (res.ok) {
-      _feedback('naming-feedback', 'Salvato.', 'success');
-      showToast('Schema dei nomi salvato', 'success');
+      _feedback('naming-feedback', t('Salvato.'), 'success');
+      showToast(t('Schema dei nomi salvato'), 'success');
     } else {
       const d = await safeJson(res);
-      _feedback('naming-feedback', _detailText(d) || 'Errore salvataggio.', 'danger');
+      _feedback('naming-feedback', t(_detailText(d) || 'Errore salvataggio.'), 'danger');
     }
-  } catch (e) { _feedback('naming-feedback', 'Errore di rete.', 'danger'); }
+  } catch (e) { _feedback('naming-feedback', t('Errore di rete.'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
 async function resetNamingTemplates() {
-  if (!await scConfirm('Ripristinare lo schema dei nomi predefinito?')) return;
+  if (!await scConfirm(t('Ripristinare lo schema dei nomi predefinito?'))) return;
   // Blank means default, so restoring is emptying every field.
   _namingInputs().forEach(input => { input.value = ''; });
   refreshNamingPreview();
-  _feedback('naming-feedback', 'Predefiniti ripristinati: premi Salva per applicarli.');
+  _feedback('naming-feedback', t('Predefiniti ripristinati: premi Salva per applicarli.'));
 }
 
 
@@ -599,19 +622,19 @@ async function saveDomainRecovery() {
   const btn = document.getElementById('save-domain-recovery-btn') || {};
   const interval = parseInt(document.getElementById('domain-check-interval').value, 10);
   if (!(interval >= 30 && interval <= 1440)) {
-    _feedback('domain-recovery-feedback', 'Intervallo tra 30 e 1440 minuti.', 'danger');
+    _feedback('domain-recovery-feedback', t('Intervallo tra 30 e 1440 minuti.'), 'danger');
     return;
   }
   const autoApply = document.getElementById('domain-auto-apply').checked;
   // Turning this on hands a page we do not control the ability to move the
   // panel's source. Worth one deliberate click.
   if (autoApply && !await scConfirm(
-      'Con l\'applicazione automatica il pannello adotta il dominio trovato senza chiedere. ' +
-      'Verranno accettati solo domini verificati e con un nome riconosciuto. Continuare?')) {
+      t('Con l\'applicazione automatica il pannello adotta il dominio trovato senza chiedere. ') +
+      t('Verranno accettati solo domini verificati e con un nome riconosciuto. Continuare?'))) {
     return;
   }
   btn.disabled = true;
-  _feedback('domain-recovery-feedback', 'Salvataggio...');
+  _feedback('domain-recovery-feedback', t('Salvataggio...'));
   try {
     const res = await fetch('/api/domain/settings', {
       method: 'PUT',
@@ -623,46 +646,46 @@ async function saveDomainRecovery() {
       }),
     });
     if (res.ok) {
-      _feedback('domain-recovery-feedback', 'Salvato.', 'success');
-      showToast('Impostazioni salvate', 'success');
+      _feedback('domain-recovery-feedback', t('Salvato.'), 'success');
+      showToast(t('Impostazioni salvate'), 'success');
     } else {
       const d = await safeJson(res);
-      _feedback('domain-recovery-feedback', d.detail || 'Errore salvataggio.', 'danger');
+      _feedback('domain-recovery-feedback', t(d.detail || 'Errore salvataggio.'), 'danger');
     }
-  } catch (e) { _feedback('domain-recovery-feedback', 'Errore di rete.', 'danger'); }
+  } catch (e) { _feedback('domain-recovery-feedback', t('Errore di rete.'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
 async function checkDomainNow() {
   const btn = document.getElementById('domain-check-btn');
   btn.disabled = true;
-  _feedback('domain-recovery-feedback', 'Controllo in corso...');
+  _feedback('domain-recovery-feedback', t('Controllo in corso...'));
   try {
     const res = await fetch('/api/domain/check', {method: 'POST'});
     if (!res.ok) {
       const d = await safeJson(res);
-      _feedback('domain-recovery-feedback', d.detail || 'Controllo fallito.', 'danger');
+      _feedback('domain-recovery-feedback', t(d.detail || 'Controllo fallito.'), 'danger');
       return;
     }
     const data = await safeJson(res);
     if (data.applied) {
-      _feedback('domain-recovery-feedback', `Applicato ${data.candidate}.`, 'success');
+      _feedback('domain-recovery-feedback', t('Applicato {domain}.', {domain: data.candidate}), 'success');
       await loadDomainStatus();
     } else if (data.candidate) {
-      _feedback('domain-recovery-feedback', `Trovato ${data.candidate}: da applicare.`, 'success');
+      _feedback('domain-recovery-feedback', t('Trovato {domain}: da applicare.', {domain: data.candidate}), 'success');
     } else if (data.current_ok) {
-      _feedback('domain-recovery-feedback', 'Il dominio attuale risponde.', 'success');
+      _feedback('domain-recovery-feedback', t('Il dominio attuale risponde.'), 'success');
     } else {
       // Rejections are shown rather than swallowed: a rebranded source and an
       // edited page look identical from here, and only a person can tell them
       // apart.
       const why = (data.rejected || []).map(r => `${r.host} (${r.reason})`).join(', ');
       _feedback('domain-recovery-feedback',
-        why ? `Nessun dominio adottabile. Scartati: ${why}` : 'Nessun dominio trovato.',
+        why ? t('Nessun dominio adottabile. Scartati: {why}', {why}) : t('Nessun dominio trovato.'),
         'danger');
     }
     await loadDomainCandidate();
-  } catch (e) { _feedback('domain-recovery-feedback', 'Errore di rete.', 'danger'); }
+  } catch (e) { _feedback('domain-recovery-feedback', t('Errore di rete.'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
@@ -672,10 +695,10 @@ async function savePerfSettings() {
   const transcodes = parseInt(document.getElementById('setting-max-transcodes').value, 10);
   const workers = parseInt(document.getElementById('setting-max-workers').value, 10);
   if (!concurrent || !transcodes || !workers) {
-    _feedback('perf-settings-feedback', 'Valori non validi.', 'danger'); return;
+    _feedback('perf-settings-feedback', t('Valori non validi.'), 'danger'); return;
   }
   btn.disabled = true;
-  _feedback('perf-settings-feedback', 'Salvataggio...');
+  _feedback('perf-settings-feedback', t('Salvataggio...'));
   try {
     const res = await fetch('/api/domain/settings', {
       method: 'PUT',
@@ -688,22 +711,22 @@ async function savePerfSettings() {
       }),
     });
     if (res.ok) {
-      _feedback('perf-settings-feedback', 'Salvato.', 'success');
-      showToast('Performance salvate', 'success');
+      _feedback('perf-settings-feedback', t('Salvato.'), 'success');
+      showToast(t('Performance salvate'), 'success');
     } else {
       const d = await safeJson(res);
-      _feedback('perf-settings-feedback', d.detail || 'Errore salvataggio.', 'danger');
+      _feedback('perf-settings-feedback', t(d.detail || 'Errore salvataggio.'), 'danger');
     }
-  } catch (e) { _feedback('perf-settings-feedback', 'Errore di rete.', 'danger'); }
+  } catch (e) { _feedback('perf-settings-feedback', t('Errore di rete.'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
 async function saveDomain() {
   const domain = document.getElementById('domain-input').value.trim();
   const btn = document.getElementById('save-domain-btn') || {};
-  if (!domain) { _feedback('domain-feedback', 'Inserisci un domain.', 'danger'); return; }
+  if (!domain) { _feedback('domain-feedback', t('Inserisci un domain.'), 'danger'); return; }
   btn.disabled = true;
-  _feedback('domain-feedback', 'Verifica in corso...');
+  _feedback('domain-feedback', t('Verifica in corso...'));
   try {
     const res = await fetch('/api/domain', {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -716,12 +739,12 @@ async function saveDomain() {
       const badge = document.getElementById('domain-badge');
       badge.className = 'badge bg-success';
       badge.textContent = data.domain;
-      showToast('Domain salvato', 'success');
+      showToast(t('Domain salvato'), 'success');
     } else {
-      _feedback('domain-feedback', data.detail || 'Errore', 'danger');
+      _feedback('domain-feedback', t(data.detail || 'Errore'), 'danger');
     }
   } catch(e) {
-    _feedback('domain-feedback', 'Errore di rete', 'danger');
+    _feedback('domain-feedback', t('Errore di rete'), 'danger');
   } finally { if (btn) btn.disabled = false; }
 }
 
@@ -751,12 +774,12 @@ async function browseDownloadDir() {
   if (btn) btn.disabled = true;
   try {
     const res = await fetch('/api/files/pick-folder', {method: 'POST'});
-    if (!res.ok) { showToast('Impossibile aprire il selettore', 'danger'); return; }
+    if (!res.ok) { showToast(t('Impossibile aprire il selettore'), 'danger'); return; }
     const data = await safeJson(res);
     // A cancelled dialog answers with null: leave what was already there.
     if (data.path) input.value = data.path;
   } catch (e) {
-    showToast('Errore di rete', 'danger');
+    showToast(t('Errore di rete'), 'danger');
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -766,7 +789,7 @@ async function saveDownloadDir() {
   const btn = document.getElementById('save-download-dir-btn') || {};
   const input = document.getElementById('download-dir-input');
   btn.disabled = true;
-  _feedback('download-dir-feedback', 'Salvataggio...');
+  _feedback('download-dir-feedback', t('Salvataggio...'));
   try {
     const res = await fetch('/api/domain/download-dir', {
       method: 'PUT',
@@ -774,17 +797,17 @@ async function saveDownloadDir() {
       body: JSON.stringify({path: input.value.trim()}),
     });
     if (res.ok) {
-      _feedback('download-dir-feedback', 'Salvato.', 'success');
-      showToast('Cartella salvata', 'success');
+      _feedback('download-dir-feedback', t('Salvato.'), 'success');
+      showToast(t('Cartella salvata'), 'success');
       await loadDownloadDir();
       // The file manager is rooted at this folder, so it is now showing the
       // wrong tree until it is re-read.
       if (document.getElementById('page-files')?.style.display !== 'none') loadFiles();
     } else {
       const d = await safeJson(res);
-      _feedback('download-dir-feedback', _detailText(d) || 'Errore salvataggio.', 'danger');
+      _feedback('download-dir-feedback', t(_detailText(d) || 'Errore salvataggio.'), 'danger');
     }
-  } catch (e) { _feedback('download-dir-feedback', 'Errore di rete.', 'danger'); }
+  } catch (e) { _feedback('download-dir-feedback', t('Errore di rete.'), 'danger'); }
   finally { if (btn) btn.disabled = false; }
 }
 
@@ -897,15 +920,15 @@ async function doSearch() {
   _searchAbort = new AbortController();
   const btn = document.getElementById('search-btn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cerca';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + t('Cerca');
   _showSearchSkeletons();
   _setMoreVisible(false);
   try {
     const res = await fetch(`/api/search?${_searchParams(q, 1)}`, {signal: _searchAbort.signal});
     const container = document.getElementById('search-results');
     const results = await safeJson(res);
-    if (!res.ok) { container.innerHTML=`<div class="col-12"><div class="alert alert-danger">${results.detail||'Errore'}</div></div>`; return; }
-    if (!results.length) { container.innerHTML='<div class="col-12"><p class="text-muted">Nessun risultato.</p></div>'; return; }
+    if (!res.ok) { container.innerHTML=`<div class="col-12"><div class="alert alert-danger">${t(results.detail||'Errore')}</div></div>`; return; }
+    if (!results.length) { container.innerHTML=`<div class="col-12"><p class="text-muted">${t('Nessun risultato.')}</p></div>`; return; }
     container.innerHTML = '';
     _searchResults = [];
     _searchPage = 1;
@@ -915,9 +938,9 @@ async function doSearch() {
   } catch(e) {
     if (e.name === 'AbortError') return; // cancelled by new search
     const container = document.getElementById('search-results');
-    container.innerHTML=`<div class="col-12"><div class="alert alert-danger">Errore: ${escapeHtml(e.message)}</div></div>`;
+    container.innerHTML=`<div class="col-12"><div class="alert alert-danger">${t('Errore')}: ${escapeHtml(e.message)}</div></div>`;
   } finally {
-    btn.disabled=false; btn.innerHTML='<i class="ti ti-search me-1"></i>Cerca';
+    btn.disabled=false; btn.innerHTML='<i class="ti ti-search me-1"></i>' + t('Cerca');
   }
 }
 
@@ -933,16 +956,16 @@ async function loadMoreResults() {
     // that fires while somebody is still typing in the box.
     const res = await fetch(`/api/search?${_searchParams(q, _searchPage + 1)}`);
     const results = await safeJson(res);
-    if (!res.ok) { showToast(results.detail || 'Errore', 'danger'); return; }
+    if (!res.ok) { showToast(t(results.detail || 'Errore'), 'danger'); return; }
     _searchPage += 1;
     _appendResults(results);
     // A page that came back short is the last one there is.
     if (results.length < _searchPageSize) {
       _setMoreVisible(false);
-      if (!results.length) showToast('Nessun altro risultato', 'info');
+      if (!results.length) showToast(t('Nessun altro risultato'), 'info');
     }
   } catch(e) {
-    showToast('Errore di rete', 'danger');
+    showToast(t('Errore di rete'), 'danger');
   } finally {
     btn.disabled = false; btn.innerHTML = original;
   }
@@ -1063,16 +1086,16 @@ function openDetailModal(idx) {
 
   document.getElementById('detail-title').textContent = item.name;
   const tb = document.getElementById('detail-type-badge');
-  if (isAnime) { tb.className='badge me-1 bg-purple-lt'; tb.textContent='Anime'; }
-  else if (isMovie) { tb.className='badge me-1 bg-blue-lt'; tb.textContent='Film'; }
-  else { tb.className='badge me-1 bg-green-lt'; tb.textContent='Serie TV'; }
+  if (isAnime) { tb.className='badge me-1 bg-purple-lt'; tb.textContent = t('Anime'); }
+  else if (isMovie) { tb.className='badge me-1 bg-blue-lt'; tb.textContent = t('Film'); }
+  else { tb.className='badge me-1 bg-green-lt'; tb.textContent = t('Serie TV'); }
   const ab = document.getElementById('detail-age-badge');
   if (item.age) { ab.textContent=`${item.age}+`; ab.style.display=''; } else ab.style.display='none';
 
   const meta = [];
   if (year) meta.push(year);
-  if (isAnime && item.episodes_count) meta.push(`${item.episodes_count} episodi`);
-  else if (!isMovie && item.seasons_count) meta.push(`${item.seasons_count} stagion${item.seasons_count===1?'e':'i'}`);
+  if (isAnime && item.episodes_count) meta.push(t('{n} episodi', {n: item.episodes_count}));
+  else if (!isMovie && item.seasons_count) meta.push(t(item.seasons_count === 1 ? '{n} stagione' : '{n} stagioni', {n: item.seasons_count}));
   document.getElementById('detail-meta').textContent = meta.join(' · ');
   document.getElementById('detail-score').innerHTML = score
     ? `<span class="badge bg-yellow-lt fs-5"><i class="ti ti-star-filled me-1"></i>${score}</span>` : '';
@@ -1081,7 +1104,7 @@ function openDetailModal(idx) {
   const btn = document.getElementById('detail-action-btn');
 
   if (isAnime) {
-    btn.className='btn btn-success'; btn.innerHTML='<i class="ti ti-list me-1"></i>Episodi';
+    btn.className='btn btn-success'; btn.innerHTML='<i class="ti ti-list me-1"></i>' + t('Episodi');
     btn.onclick = () => {
       const { audio, subs } = _getLangSelections();
       hideModal('detail-modal');
@@ -1091,14 +1114,14 @@ function openDetailModal(idx) {
     btn.className = requestOnly ? 'btn btn-warning' : 'btn btn-primary';
     btn.innerHTML = requestOnly
       ? '<i class="ti ti-send me-1"></i>Richiedi'
-      : '<i class="ti ti-download me-1"></i>Scarica';
+      : '<i class="ti ti-download me-1"></i>' + t('Scarica');
     btn.onclick = () => {
       const { audio, subs } = _getLangSelections();
       hideModal('detail-modal');
       startFilmDownload(item.id, item.name, year, audio, subs, item.poster);
     };
   } else {
-    btn.className='btn btn-success'; btn.innerHTML='<i class="ti ti-list me-1"></i>Episodi';
+    btn.className='btn btn-success'; btn.innerHTML='<i class="ti ti-list me-1"></i>' + t('Episodi');
     btn.onclick = () => {
       const { audio, subs } = _getLangSelections();
       hideModal('detail-modal');
@@ -1118,7 +1141,7 @@ function openDetailModal(idx) {
     return;
   }
 
-  langsEl.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Caricamento lingue...';
+  langsEl.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>' + t('Caricamento lingue...');
   showModal('detail-modal');
 
   const p = new URLSearchParams({ type:isMovie?'movie':'tv', slug:item.slug||'', version:currentVersion||'' });
@@ -1183,8 +1206,8 @@ async function startFilmDownload(id, title, year=null, audioLangs=null, subLangs
     if (res.ok) {
       showToast(`Download avviato: ${title}`, 'success');
       showPage('downloads');
-    } else showToast(data.detail||'Errore','danger');
-  } catch(e) { showToast('Errore di rete','danger'); }
+    } else showToast(t(data.detail||'Errore'),'danger');
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 // ── Episode Browser ────────────────────────────────────────────────────────────
@@ -1211,7 +1234,7 @@ async function openEpisodeBrowser(tvId, tvName, slug, year=null, audioLangs=null
     renderSeasonTabs(seasonsData.seasons_count);
     loadSeason(1);
   } catch(e) {
-    document.getElementById('episode-modal-body').innerHTML=`<div class="alert alert-danger">Errore: ${escapeHtml(e.message)}</div>`;
+    document.getElementById('episode-modal-body').innerHTML=`<div class="alert alert-danger">${t('Errore')}: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1243,8 +1266,8 @@ async function loadSeason(season) {
   try {
     const res = await fetch(`/api/tv/${tvId}/seasons/${season}/episodes?slug=${encodeURIComponent(slug)}&version=${encodeURIComponent(currentVersion)}&token=${encodeURIComponent(token)}`);
     const eps = await safeJson(res);
-    if (!res.ok) { container.innerHTML=`<div class="alert alert-danger">${escapeHtml(eps.detail||'Errore caricamento episodi')}</div>`; return; }
-    if (!Array.isArray(eps)) { container.innerHTML=`<div class="alert alert-danger">Risposta non valida dal server</div>`; return; }
+    if (!res.ok) { container.innerHTML=`<div class="alert alert-danger">${escapeHtml(t(eps.detail||'Errore caricamento episodi'))}</div>`; return; }
+    if (!Array.isArray(eps)) { container.innerHTML=`<div class="alert alert-danger">${t('Risposta non valida dal server')}</div>`; return; }
     _epCtx.episodes=eps; _epCtx.currentSeason=season;
 
     const rows = eps.map((ep, idx) => `
@@ -1252,7 +1275,7 @@ async function loadSeason(season) {
         <td class="text-muted w-1 text-nowrap">${ep.n}</td>
         <td>${escapeHtml(ep.name)}</td>
         <td class="w-1">
-          <button class="btn btn-sm btn-primary" onclick="startEpisodeDownload(${idx})" title="Scarica">
+          <button class="btn btn-sm btn-primary" onclick="startEpisodeDownload(${idx})" title="${t('Scarica')}">
             <i class="ti ti-download"></i>
           </button>
         </td>
@@ -1260,9 +1283,9 @@ async function loadSeason(season) {
 
     container.innerHTML=`
       <div class="d-flex align-items-center justify-content-between mb-2">
-        <span class="text-muted small">${eps.length} episodi</span>
+        <span class="text-muted small">${t('{n} episodi', {n: eps.length})}</span>
         <button class="btn btn-sm btn-outline-success" onclick="downloadWholeSeason(${season})">
-          <i class="ti ti-download me-1"></i>Tutta la stagione
+          <i class="ti ti-download me-1"></i>${t('Tutta la stagione')}
         </button>
       </div>
       <div class="table-responsive" style="max-height:380px;overflow-y:auto">
@@ -1271,7 +1294,7 @@ async function loadSeason(season) {
         </table>
       </div>`;
   } catch(e) {
-    container.innerHTML=`<div class="alert alert-danger">Errore: ${escapeHtml(e.message)}</div>`;
+    container.innerHTML=`<div class="alert alert-danger">${t('Errore')}: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1292,9 +1315,9 @@ async function startEpisodeDownload(epIndex) {
       body: JSON.stringify(body),
     });
     const data = await safeJson(res);
-    if (res.ok) showToast(`In coda: ${label}`, 'success');
-    else showToast(data.detail||'Errore','danger');
-  } catch(e) { showToast('Errore di rete','danger'); }
+    if (res.ok) showToast(t('In coda: {label}', {label}), 'success');
+    else showToast(t(data.detail||'Errore'),'danger');
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 // Whole seasons and whole series are one call: the server lists the episodes
@@ -1308,10 +1331,10 @@ async function _startBatch(path, body, modalId) {
   });
   const data = await safeJson(res);
   if (!res.ok) {
-    showToast(data.detail || 'Errore avviando i download', 'danger');
+    showToast(t(data.detail || 'Errore avviando i download'), 'danger');
     return false;
   }
-  showToast(`${data.count} episodi in coda`, 'success');
+  showToast(t('{n} episodi in coda', {n: data.count}), 'success');
   hideModal(modalId);
   showPage('downloads');
   return true;
@@ -1319,7 +1342,7 @@ async function _startBatch(path, body, modalId) {
 
 async function downloadWholeSeason(season) {
   const { tvId, slug, tvName, year, episodes, audioLangs, subLangs } = _epCtx;
-  if (!await scConfirm(`Aggiungere alla coda tutti i ${episodes.length} episodi della stagione ${season}?`)) return;
+  if (!await scConfirm(t('Aggiungere alla coda tutti i {n} episodi della stagione {season}?', {n: episodes.length, season}))) return;
   await _startBatch('/api/download/season', {
     tv_id: tvId, slug, tv_name: tvName, season, year,
     audio_languages: audioLangs, subtitle_languages: subLangs,
@@ -1328,7 +1351,7 @@ async function downloadWholeSeason(season) {
 
 async function downloadWholeSeries() {
   const { tvId, slug, tvName, year, seasonsCount, audioLangs, subLangs } = _epCtx;
-  if (!await scConfirm(`Aggiungere alla coda tutte le ${seasonsCount} stagioni?`)) return;
+  if (!await scConfirm(t('Aggiungere alla coda tutte le {n} stagioni?', {n: seasonsCount}))) return;
   await _startBatch('/api/download/series', {
     tv_id: tvId, slug, tv_name: tvName, year,
     audio_languages: audioLangs, subtitle_languages: subLangs,
@@ -1352,12 +1375,12 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
   try {
     const res = await fetch(`/api/anime/${encodeURIComponent(animeId)}/episodes`);
     const episodes = await safeJson(res);
-    if (!res.ok) throw new Error(episodes.detail || 'Errore');
+    if (!res.ok) throw new Error(t(episodes.detail || 'Errore'));
     _animeCtx.episodes = episodes;
 
     if (!episodes.length) {
       document.getElementById('anime-modal-body').innerHTML =
-        '<p class="text-muted">Nessun episodio trovato.</p>';
+        `<p class="text-muted">${t('Nessun episodio trovato.')}</p>`;
       return;
     }
 
@@ -1368,10 +1391,10 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
       if (_animeCtx.isAutoFilm && episodes.length === 1) {
         return `
           <tr>
-            <td class="text-muted w-1 text-nowrap">Film</td>
-            <td class="text-muted" style="font-size:12px">1 episodio</td>
+            <td class="text-muted w-1 text-nowrap">${t('Film|riga')}</td>
+            <td class="text-muted" style="font-size:12px">${t('1 episodio')}</td>
             <td class="w-1">
-              <button class="btn btn-sm btn-primary" onclick="startAnimeDownload(${idx})" title="Scarica">
+              <button class="btn btn-sm btn-primary" onclick="startAnimeDownload(${idx})" title="${t('Scarica')}">
                 <i class="ti ti-download"></i>
               </button>
             </td>
@@ -1382,7 +1405,7 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
           <td class="text-muted w-1 text-nowrap">E${epNum}</td>
           <td class="text-muted" style="font-size:12px">ep. ${epNum}</td>
           <td class="w-1">
-            <button class="btn btn-sm btn-primary" onclick="startAnimeDownload(${idx})" title="Scarica">
+            <button class="btn btn-sm btn-primary" onclick="startAnimeDownload(${idx})" title="${t('Scarica')}">
               <i class="ti ti-download"></i>
             </button>
           </td>
@@ -1409,9 +1432,9 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
     document.getElementById('anime-modal-body').innerHTML = `
       ${typeToggle}
       <div class="d-flex align-items-center justify-content-between mb-2">
-        <span class="text-muted small">${episodes.length} episodi</span>
+        <span class="text-muted small">${t('{n} episodi', {n: episodes.length})}</span>
         <button class="btn btn-sm btn-outline-success" onclick="downloadAllAnime()">
-          <i class="ti ti-download me-1"></i>Scarica tutti
+          <i class="ti ti-download me-1"></i>${t('Scarica tutti')}
         </button>
       </div>
       <div class="table-responsive" style="max-height:380px;overflow-y:auto">
@@ -1421,7 +1444,7 @@ async function openAnimeBrowser(animeId, animeName, animeType, animeYear = null,
       </div>`;
   } catch(e) {
     document.getElementById('anime-modal-body').innerHTML =
-      `<div class="alert alert-danger">Errore: ${escapeHtml(e.message)}</div>`;
+      `<div class="alert alert-danger">${t('Errore')}: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1441,9 +1464,9 @@ async function startAnimeDownload(epIndex) {
       body: JSON.stringify(body),
     });
     const data = await safeJson(res);
-    if (res.ok) showToast(`In coda: ${label}`, 'success');
-    else showToast(data.detail || 'Errore', 'danger');
-  } catch(e) { showToast('Errore di rete', 'danger'); }
+    if (res.ok) showToast(t('In coda: {label}', {label}), 'success');
+    else showToast(t(data.detail || 'Errore'), 'danger');
+  } catch(e) { showToast(t('Errore di rete'), 'danger'); }
 }
 
 function toggleAnimeType(newType) {
@@ -1455,7 +1478,7 @@ function toggleAnimeType(newType) {
 async function downloadAllAnime() {
   const { animeId, animeName, animeType, animeYear, episodes,
           audioLangs, subLangs } = _animeCtx;
-  if (!await scConfirm(`Aggiungere alla coda tutti i ${episodes.length} episodi?`)) return;
+  if (!await scConfirm(t('Aggiungere alla coda tutti i {n} episodi?', {n: episodes.length}))) return;
   await _startBatch('/api/download/anime-all', {
     anime_id: String(animeId), anime_name: animeName, anime_type: animeType,
     year: animeYear,
@@ -1469,7 +1492,7 @@ function connectGlobalStream() {
   const es = new EventSource('/api/progress/stream');
 
   es.onopen = () => {
-    document.getElementById('stream-label').textContent='Live';
+    document.getElementById('stream-label').textContent = t('Live');
     document.querySelector('.stream-dot').style.background='#2fb344';
   };
 
@@ -1532,7 +1555,7 @@ function connectGlobalStream() {
 
   es.onerror = () => {
     es.close();
-    document.getElementById('stream-label').textContent='Riconnessione...';
+    document.getElementById('stream-label').textContent = t('Riconnessione...');
     document.querySelector('.stream-dot').style.background='#d63939';
     setTimeout(connectGlobalStream, 3000);
   };
@@ -1541,9 +1564,9 @@ function connectGlobalStream() {
 // ── Job cards ──────────────────────────────────────────────────────────────────
 
 const PHASE_LABELS = {
-  queued:'In coda', running:'In corso', joining:'Finalizzazione',
-  audio:'Audio', merging:'Unione', transcoding:'Ricodifica', done:'Completato',
-  error:'Errore', cancelled:'Annullato',
+  queued:t('In coda'), running:t('In corso'), joining:t('Finalizzazione'),
+  audio:t('Audio'), merging:t('Unione'), transcoding:t('Ricodifica'), done:t('Completato'),
+  error:t('Errore'), cancelled:t('Annullato'),
 };
 const PHASE_BADGE = {
   queued:'bg-secondary-lt', running:'bg-blue-lt', joining:'bg-yellow-lt',
@@ -1632,7 +1655,7 @@ function _phaseBorder(phase) {
 // what it was asked to fetch, so there is nothing to look up in search again.
 function _retryBtnHtml(jobId, status) {
   if (status !== 'error' && status !== 'cancelled') return '';
-  return `<button class="btn btn-sm btn-outline-primary ms-1" onclick="retryJob('${jobId}')" title="Riprova">
+  return `<button class="btn btn-sm btn-outline-primary ms-1" onclick="retryJob('${jobId}')" title="${t('Riprova')}">
             <i class="ti ti-refresh"></i>
           </button>`;
 }
@@ -1641,7 +1664,7 @@ function _retryBtnHtml(jobId, status) {
 // knows where. Without this the user has to go and find it by name.
 function _revealBtnHtml(jobId, status, outputPath) {
   if (status !== 'done' || !outputPath) return '';
-  return `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="revealFile('${jobId}')" title="Mostra nel Finder">
+  return `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="revealFile('${jobId}')" title="${t('Mostra nel Finder')}">
             <i class="ti ti-folder-search"></i>
           </button>`;
 }
@@ -1704,7 +1727,7 @@ function _buildJobCard(j) {
         <div class="progress-bar ${barClass}${animated} job-progress-bar" id="job-bar-${j.job_id}" style="width:${barWidth}%"></div>
       </div>
       <div class="d-flex justify-content-between align-items-center">
-        <small class="text-muted" id="job-info-${j.job_id}">${infoStr || (j.status==='error' ? escapeHtml(j.error||'Errore') : (j.status==='done'?'Completato':''))}</small>
+        <small class="text-muted" id="job-info-${j.job_id}">${infoStr || (j.status==='error' ? escapeHtml(t(j.error||'Errore')) : (j.status==='done'?t('Completato'):''))}</small>
         <small class="text-muted">${dateLabel}</small>
       </div>
     </div>
@@ -1793,9 +1816,9 @@ function refreshCardAppearance(jobId) {
   // Update info text
   const info = document.getElementById(`job-info-${jobId}`);
   if (info) {
-    if (j.status==='error') info.textContent = j.error||'Errore';
-    else if (j.status==='done') info.textContent = 'Completato';
-    else if (j.status==='cancelled') info.textContent = 'Annullato';
+    if (j.status==='error') info.textContent = t(j.error||'Errore');
+    else if (j.status==='done') info.textContent = t('Completato');
+    else if (j.status==='cancelled') info.textContent = t('Annullato');
     else info.textContent = '';
   }
 
@@ -1878,14 +1901,14 @@ function handleDoneEvent(jobId, outputPath) {
   const card = document.getElementById(`job-card-${jobId}`);
   if (card) card.classList.add('is-done');
   const badge = document.getElementById(`job-badge-${jobId}`);
-  if (badge) { badge.className='badge bg-success-lt flex-shrink-0'; badge.textContent='Completato'; }
+  if (badge) { badge.className='badge bg-success-lt flex-shrink-0'; badge.textContent = t('Completato'); }
   const bar = document.getElementById(`job-bar-${jobId}`);
   if (bar) {
     bar.style.width='100%';
     bar.className='progress-bar phase-bar-done bg-success job-progress-bar';
   }
   const info = document.getElementById(`job-info-${jobId}`);
-  if (info) info.textContent='Completato';
+  if (info) info.textContent = t('Completato');
   const stop = document.getElementById(`job-stop-${jobId}`);
   if (stop) stop.innerHTML='';
   const reveal = document.getElementById(`job-reveal-${jobId}`);
@@ -1904,11 +1927,11 @@ function handleErrorEvent(jobId, message) {
   const card = document.getElementById(`job-card-${jobId}`);
   if (card) card.classList.add('is-error');
   const badge = document.getElementById(`job-badge-${jobId}`);
-  if (badge) { badge.className='badge bg-danger-lt flex-shrink-0'; badge.textContent='Errore'; }
+  if (badge) { badge.className='badge bg-danger-lt flex-shrink-0'; badge.textContent = t('Errore'); }
   const bar = document.getElementById(`job-bar-${jobId}`);
   if (bar) { bar.className='progress-bar phase-bar-error bg-danger job-progress-bar'; bar.style.width='100%'; }
   const info = document.getElementById(`job-info-${jobId}`);
-  if (info) info.textContent = message==='Annullato' ? 'Annullato' : escapeHtml(message||'Errore');
+  if (info) info.textContent = message==='Annullato' ? t('Annullato') : escapeHtml(t(message||'Errore'));
   const stop = document.getElementById(`job-stop-${jobId}`);
   if (stop) stop.innerHTML='';
   const retry = document.getElementById(`job-retry-${jobId}`);
@@ -1926,23 +1949,23 @@ async function revealFile(jobId) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: job.output_path}),
     });
-    if (!res.ok) { const d = await safeJson(res); showToast(_detailText(d) || 'Errore', 'danger'); }
-  } catch (e) { showToast('Errore di rete', 'danger'); }
+    if (!res.ok) { const d = await safeJson(res); showToast(t(_detailText(d) || 'Errore'), 'danger'); }
+  } catch (e) { showToast(t('Errore di rete'), 'danger'); }
 }
 
 async function retryJob(jobId) {
   try {
     const res = await fetch(`/api/download/${jobId}/retry`, {method:'POST'});
-    if (!res.ok) { const d=await safeJson(res); showToast(d.detail||'Errore','danger'); }
-  } catch(e) { showToast('Errore di rete','danger'); }
+    if (!res.ok) { const d=await safeJson(res); showToast(t(d.detail||'Errore'),'danger'); }
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 async function cancelJob(jobId) {
-  if (!await scConfirm('Interrompere il download?')) return;
+  if (!await scConfirm(t('Interrompere il download?'))) return;
   try {
     const res = await fetch(`/api/download/${jobId}`, {method:'DELETE'});
-    if (!res.ok) { const d=await safeJson(res); showToast(d.detail||'Errore','danger'); }
-  } catch(e) { showToast('Errore di rete','danger'); }
+    if (!res.ok) { const d=await safeJson(res); showToast(t(d.detail||'Errore'),'danger'); }
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 // The list is normally kept current by the event stream. This re-reads it from
@@ -1953,14 +1976,14 @@ async function refreshJobs() {
   if (btn) btn.disabled = true;
   try {
     const res = await fetch('/api/jobs');
-    if (!res.ok) { showToast('Impossibile aggiornare i download', 'danger'); return; }
+    if (!res.ok) { showToast(t('Impossibile aggiornare i download'), 'danger'); return; }
     const jobs = await safeJson(res);
     _jobs.clear();
     jobs.forEach(j => _jobs.set(j.job_id, j));
     renderAllJobCards();
     updateActiveBadge();
   } catch (e) {
-    showToast('Errore di rete', 'danger');
+    showToast(t('Errore di rete'), 'danger');
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -2106,14 +2129,14 @@ function setupFileManager() {
   const batchMoveBtn = document.getElementById('fm-batch-move-btn');
   if (batchMoveBtn) batchMoveBtn.addEventListener('click', async () => {
     if (!_selectedPaths.size) return;
-    const dest = await scPrompt('Percorso cartella di destinazione (vuoto = radice):','');
+    const dest = await scPrompt(t('Percorso cartella di destinazione (vuoto = radice):'),'');
     if (dest === null) return;
     batchMoveToPath([..._selectedPaths], dest);
   });
   const batchDeleteBtn = document.getElementById('fm-batch-delete-btn');
   if (batchDeleteBtn) batchDeleteBtn.addEventListener('click', async () => {
     if (!_selectedPaths.size) return;
-    if (!await scConfirm(`Eliminare ${_selectedPaths.size} elementi selezionati?`)) return;
+    if (!await scConfirm(t('Eliminare {n} elementi selezionati?', {n: _selectedPaths.size}))) return;
     batchDeletePaths([..._selectedPaths]);
   });
   const deselectBtn = document.getElementById('fm-deselect-btn');
@@ -2136,7 +2159,7 @@ function syncSelectionUI() {
   const bar = document.getElementById('fm-selection-bar');
   const count = document.getElementById('fm-selection-count');
   if (bar) bar.style.visibility = _selectedPaths.size ? '' : 'hidden';
-  if (count) count.textContent = `${_selectedPaths.size} selezionat${_selectedPaths.size===1?'o':'i'}`;
+  if (count) count.textContent = t(_selectedPaths.size === 1 ? '{n} selezionato' : '{n} selezionati', {n: _selectedPaths.size});
 }
 
 function onFmSearchInput(value) {
@@ -2168,17 +2191,17 @@ async function searchFiles(query) {
   const pane = document.getElementById('files-left-pane');
   if (!pane) return;
   _fmSearchActive = true;
-  pane.innerHTML = '<div class="text-center py-4 text-muted" style="font-size:13px"><div class="spinner-border spinner-border-sm me-2"></div>Ricerca...</div>';
+  pane.innerHTML = `<div class="text-center py-4 text-muted" style="font-size:13px"><div class="spinner-border spinner-border-sm me-2"></div>${t('Ricerca...')}</div>`;
   try {
     const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}`);
     const results = await safeJson(res);
     if (!res.ok) {
-      pane.innerHTML = `<div class="text-danger text-center py-4 px-3">${escapeHtml(results.detail || 'Errore ricerca')}</div>`;
+      pane.innerHTML = `<div class="text-danger text-center py-4 px-3">${escapeHtml(t(results.detail || 'Errore ricerca'))}</div>`;
       return;
     }
     renderSearchResults(results, query);
   } catch(e) {
-    pane.innerHTML = `<div class="text-danger text-center py-4">Errore: ${escapeHtml(e.message)}</div>`;
+    pane.innerHTML = `<div class="text-danger text-center py-4">${t('Errore')}: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -2190,7 +2213,7 @@ function renderSearchResults(results, query) {
   if (!results || !results.length) {
     pane.innerHTML = `<div class="text-muted text-center py-5" style="font-size:13px">
       <i class="ti ti-search-off" style="font-size:2em;display:block;margin-bottom:8px;opacity:.4"></i>
-      Nessun risultato per <strong>${escapeHtml(query)}</strong>
+      ${t('Nessun risultato per')} <strong>${escapeHtml(query)}</strong>
     </div>`;
     return;
   }
@@ -2242,7 +2265,8 @@ function renderSearchResults(results, query) {
 
   const header = document.createElement('div');
   header.style.cssText = 'padding:6px 12px 5px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border)';
-  header.textContent = `${results.length} risultat${results.length === 1 ? 'o' : 'i'} per "${query}"`;
+  header.textContent = t(results.length === 1 ? '{n} risultato per "{query}"' : '{n} risultati per "{query}"',
+                        {n: results.length, query});
   pane.innerHTML = '';
   pane.appendChild(header);
   pane.appendChild(frag);
@@ -2274,10 +2298,10 @@ async function loadFiles() {
     const res = await fetch('/api/files');
     const tree = await safeJson(res);
     _cachedTree = tree;
-    if (!tree||!tree.length) { pane.innerHTML='<div class="text-muted text-center py-4">Nessun file trovato</div>'; return; }
+    if (!tree||!tree.length) { pane.innerHTML=`<div class="text-muted text-center py-4">${t('Nessun file trovato')}</div>`; return; }
     renderFileTree(tree);
   } catch(e) {
-    pane.innerHTML=`<div class="text-danger text-center py-4">Errore: ${escapeHtml(e.message)}</div>`;
+    pane.innerHTML=`<div class="text-danger text-center py-4">${t('Errore')}: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -2372,9 +2396,9 @@ async function moveToPath(sourcePath, name, destDirPath) {
       body: JSON.stringify({path:sourcePath, dest_dir_path:destDirPath}),
     });
     const data = await safeJson(res);
-    if (res.ok) { showToast(`Spostato: ${name}`,'success'); loadFiles(); }
-    else showToast(data.detail||'Errore spostamento','danger');
-  } catch(e) { showToast('Errore di rete','danger'); }
+    if (res.ok) { showToast(t('Spostato: {name}', {name}),'success'); loadFiles(); }
+    else showToast(t(data.detail||'Errore spostamento'),'danger');
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 async function batchMoveToPath(paths, destDirPath) {
@@ -2387,12 +2411,12 @@ async function batchMoveToPath(paths, destDirPath) {
     if (res.ok) {
       const ok = data.results.filter(r=>r.ok).length;
       const fail = data.results.filter(r=>!r.ok).length;
-      if (ok) showToast(`${ok} file spostati`,'success');
-      if (fail) showToast(`${fail} file non spostati`,'danger');
+      if (ok) showToast(t('{n} file spostati', {n: ok}),'success');
+      if (fail) showToast(t('{n} file non spostati', {n: fail}),'danger');
       _selectedPaths.clear();
       loadFiles();
-    } else showToast(data.detail||'Errore spostamento','danger');
-  } catch(e) { showToast('Errore di rete','danger'); }
+    } else showToast(t(data.detail||'Errore spostamento'),'danger');
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 async function batchDeletePaths(paths) {
@@ -2405,12 +2429,12 @@ async function batchDeletePaths(paths) {
     if (res.ok) {
       const ok = data.results.filter(r=>r.ok).length;
       const fail = data.results.filter(r=>!r.ok).length;
-      if (ok) showToast(`${ok} file eliminati`,'success');
-      if (fail) showToast(`${fail} file non eliminati`,'danger');
+      if (ok) showToast(t('{n} file eliminati', {n: ok}),'success');
+      if (fail) showToast(t('{n} file non eliminati', {n: fail}),'danger');
       _selectedPaths.clear();
       loadFiles();
-    } else showToast(data.detail||'Errore eliminazione','danger');
-  } catch(e) { showToast('Errore di rete','danger'); }
+    } else showToast(t(data.detail||'Errore eliminazione'),'danger');
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }
 
 function playFile(path, name) {
@@ -2433,16 +2457,16 @@ async function renamePath(path, name) {
       body: JSON.stringify({ path, new_name: newName }),
     });
     if (res.ok) { showToast(`Rinominato in: ${newName}`, 'success'); loadFiles(); }
-    else { const d = await safeJson(res); showToast(d.detail || 'Errore rinomina', 'danger'); }
-  } catch(e) { showToast('Errore di rete', 'danger'); }
+    else { const d = await safeJson(res); showToast(t(d.detail || 'Errore rinomina'), 'danger'); }
+  } catch(e) { showToast(t('Errore di rete'), 'danger'); }
 }
 
 async function deletePath(path, name, isDir) {
-  const msg = isDir ? `Eliminare la cartella "${name}" e tutto il suo contenuto?` : `Eliminare il file "${name}"?`;
+  const msg = isDir ? t('Eliminare la cartella "{name}" e tutto il suo contenuto?', {name}) : t('Eliminare il file "{name}"?', {name});
   if (!await scConfirm(msg)) return;
   try {
     const res = await fetch(`/api/files/delete/${encodeURI(path)}`, {method:'DELETE'});
-    if (res.ok||res.status===204) { showToast(`Eliminato: ${name}`,'success'); loadFiles(); }
-    else { const d=await safeJson(res); showToast(d.detail||'Errore eliminazione','danger'); }
-  } catch(e) { showToast('Errore di rete','danger'); }
+    if (res.ok||res.status===204) { showToast(t('Eliminato: {name}', {name}),'success'); loadFiles(); }
+    else { const d=await safeJson(res); showToast(t(d.detail||'Errore eliminazione'),'danger'); }
+  } catch(e) { showToast(t('Errore di rete'),'danger'); }
 }

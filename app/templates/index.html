@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="{{ lang }}">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -1672,7 +1672,7 @@
           <li class="nav-item">
             <a class="nav-link" href="#" data-page="files" onclick="showPage('files');return false">
               <span class="nav-link-icon"><i class="ti ti-folder-filled"></i></span>
-              <span class="nav-link-title">File</span>
+              <span class="nav-link-title" data-i18n-html="File|nav">File</span>
             </a>
           </li>
         </ul>
@@ -1719,7 +1719,8 @@
             <i class="ti ti-world-search" style="font-size:18px;color:#e6a23c"></i>
             <div class="flex-fill">
               <strong>La sorgente ha cambiato dominio.</strong>
-              Trovato <code id="domain-banner-host"></code>, verificato dal pannello.
+              <span data-i18n-html="domain-banner-found">Trovato <code
+                id="domain-banner-host"></code>, verificato dal pannello.</span>
             </div>
             <button class="btn btn-sm btn-primary"
                     onclick="applyDomainCandidate()" id="domain-banner-apply">
@@ -1855,6 +1856,14 @@
         <h5 class="modal-title">
           <i class="ti ti-settings me-2" style="color:var(--text-muted);font-size:15px"></i>Impostazioni
         </h5>
+        <!-- Outside the tabs on purpose: the language is not a setting about the
+             source, the names or the downloads, and it belongs where it can be
+             seen from whichever tab is open. -->
+        <select id="setting-lang" class="form-select form-select-sm ms-auto me-2"
+                style="width:auto" title="Lingua" onchange="setLanguage(this.value)">
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
+        </select>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -1932,7 +1941,7 @@
         <!-- ── Schema dei nomi ───────────────────────────────────────────── -->
         <div class="settings-section">
           <p class="settings-section-label">Schema dei nomi</p>
-          <p class="settings-section-hint">
+          <p class="settings-section-hint" data-i18n-html="naming-placeholders">
             Come vengono chiamati cartelle e file. Segnaposto disponibili:
             <code>{title}</code>, <code>{year}</code>, <code>{season}</code>,
             <code>{season2}</code> (con lo zero), <code>{episode}</code>,
@@ -1940,7 +1949,7 @@
             solo se i segnaposto al suo interno hanno un valore: <code>[ ({year})]</code> sparisce
             del tutto quando l&rsquo;anno non &egrave; noto.
           </p>
-          <p class="settings-section-hint">
+          <p class="settings-section-hint" data-i18n-html="naming-defaults">
             I valori suggeriti nei campi sono quelli predefiniti e seguono la struttura
             raccomandata dalla <a href="https://jellyfin.org/docs/general/server/media/movies/"
             target="_blank" rel="noopener noreferrer">documentazione ufficiale di Jellyfin</a>:
@@ -2241,6 +2250,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
+<script src="{{ asset('i18n.js') }}"></script>
 <script src="{{ asset('app.js') }}"></script>
 </body>
 </html>

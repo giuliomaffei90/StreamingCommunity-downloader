@@ -171,6 +171,21 @@ class SettingsUpdate(BaseModel):
     domain_auto_check_enabled: bool | None = None
     domain_auto_apply: bool | None = None
     domain_check_interval_minutes: int | None = None
+    lang: str | None = None
+
+    @field_validator("lang")
+    @classmethod
+    def _check_lang(cls, value):
+        """Refuse anything but a language the interface actually has.
+
+        The value is written into the ``lang`` attribute of ``<html>``, which
+        i18n.js reads to decide whether to translate. An unknown value would
+        leave the page in Italian with no explanation; a value with markup in it
+        would be a settings field writing into the document.
+        """
+        if value is not None and value not in ("it", "en"):
+            raise ValueError("lang must be 'it' or 'en'")
+        return value
 
     @field_validator("naming_templates")
     @classmethod

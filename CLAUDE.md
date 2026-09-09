@@ -230,6 +230,14 @@ which is how the tests point them at a temporary directory.
   raises — it runs inside a download, after the bytes are fetched — so everything it would paper
   over is refused by `naming.validate()` at save time. Never `str.format` a user template:
   `{title.__class__}` leaks attributes and a stray `{` raises mid-download.
+- **A user-visible string is Italian, and goes through the translation.** The interface has two
+  languages (`app/static/i18n.js`), keyed by the Italian source string: text in `index.html` is
+  translated by a DOM walk at load, and anything `app.js` builds has to be wrapped in `t()` — a
+  string added without it simply stays Italian on an English page, silently, with every test still
+  green. Counted strings take a `{n}` placeholder rather than being glued together, because English
+  does not always put the number in the same place, and two Italian words that are spelled the same
+  but translate differently are told apart with a `|context` suffix on the key. Titles, plots and
+  episode names are never translated: they are what the source sent, not interface.
 - **Never `confirm()`, `alert()` or `prompt()` in the frontend.** Confirmations go through
   `scConfirm()` and text entry through `scPrompt()` in `app/static/app.js`, which resolve a Promise
   from a Tabler modal. A browser dialog ignores the theme and cannot be styled — and inside a

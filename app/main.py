@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from app import __version__, downloads_notify
 from app.core import domain_recovery
 from app.jobs import job_manager
-from app.config import download_dir
+from app.config import download_dir, get_settings
 from app.routers import (
     domain, search, tv, downloads, progress, files, images, anime,
     metadata as metadata_router,
@@ -118,4 +118,9 @@ app.include_router(anime.router)
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html")
+    # The language goes into the template rather than being fetched by the page:
+    # i18n.js translates the static text at DOMContentLoaded, and a round trip
+    # for the setting would translate it after the user has already read it.
+    return templates.TemplateResponse(
+        request=request, name="index.html", context={"lang": get_settings()["lang"]}
+    )

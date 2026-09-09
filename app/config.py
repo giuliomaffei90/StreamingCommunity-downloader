@@ -68,6 +68,10 @@ SETTINGS_DEFAULTS = {
     # the running time in CPU to save about a third of the size, on a source
     # that is already heavily compressed. See app/core/transcode.py.
     "transcode_enabled": False,
+    # Interface language. Italian is not a preference here but the source: the
+    # templates are written in it, and English is a lookup away. See
+    # app/static/i18n.js.
+    "lang": "it",
 }
 
 

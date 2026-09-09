@@ -7,7 +7,7 @@ Fork of [EdoardoFiore/StreamingCommunity-downloader](https://github.com/EdoardoF
 a self-hosted multi-user web panel. This fork keeps the download engine and rebuilds everything
 around it as a single-user desktop app — see [What this fork changed](#what-this-fork-changed).
 
-The interface is in Italian.
+The interface is in Italian or English, switched in **Impostazioni** / **Settings**.
 
 ---
 
@@ -29,6 +29,7 @@ The interface is in Italian.
 - Built-in file manager, with video streaming and free space on the volume
 - Notification Center notification when a download lands — one single summary for a whole season
 - Configurable file and folder naming templates
+- Interface in Italian or English
 
 ---
 
@@ -165,6 +166,19 @@ possible shape for a PyInstaller bundle to freeze.
 under Application Support: settings in `data.json`, the download ledger in `downloads.json`.
 
 **Scheduling a download for later was removed**, also unused.
+
+---
+
+## Language
+
+The interface is written in Italian, and English is a lookup away from it: the keys in
+`app/static/i18n.js` are the Italian strings themselves, so anything nobody has translated falls
+back to what the code already said rather than to a blank. Static text is translated by walking the
+page once at load; what the JavaScript builds goes through `t()`. Changing the language reloads the
+page, which is what makes it unnecessary to re-render every open list and modal in place.
+
+Titles, plots and episode names are not translated. They are not interface, they are what the
+source sent.
 
 ---
 
