@@ -133,47 +133,38 @@ quality; if the result comes out larger than the original, the original is kept.
 
 ## What this fork changed
 
-The original is a **self-hosted web panel**: a server several people reach over the network, sitting
-next to a Jellyfin instance, in a Docker container. This fork is a **macOS app for one person** —
-the one at the keyboard. Everything below follows from that single change of target, and none of it
-is a defect in the original: it is what a shared service needs and a local window does not.
+The original is a **self-hosted web panel**: a server several people reach over the network, running
+in Docker, with a Jellyfin instance next to it. This fork is a **macOS app for one person**, and
+most of what is gone was gone for the plainest of reasons — it was never used here. None of it is a
+defect in the original: it is what a shared service needs and a local window does not.
 
-**Jellyfin SSO, sessions, users and permissions are gone.** Authentication answers "which of you is
-this?", and here there is only ever one answer. The panel used Jellyfin as its identity provider so
-nobody would need a second account; with one user at one machine, what is left is a login screen in
-front of a window that person already opened. Every route is reachable by whoever has the window,
-and the server listens on `127.0.0.1` alone.
+**The whole Jellyfin integration is gone.** The original could log you in with Jellyfin credentials,
+take a library path, refresh the library when a download landed, and fire a webhook telling it to
+rescan. None of that was ever used, and unused code is not free: it has to be carried, frozen into
+the bundle, and kept working.
 
-Jellyfin *as a media server* is untouched — the output layout still follows its recommended
-convention, and pointing Jellyfin, Plex or Infuse at the download folder works exactly as before.
-What went away is Jellyfin as the thing deciding who you are.
+Jellyfin *as a media server* is untouched. The output layout still follows its recommended
+convention, so pointing Jellyfin, Plex or Infuse at the download folder works exactly as before.
+What went away is the app talking to it.
 
-**The request queue and approvals went with it.** An approval only means something when the approver
-and the requester are different people. One user approving their own requests is a dialog box in the
-way of a download they already asked for.
-
-**Following a series went too**, because it worked by turning each new episode into a *request* —
-remove the queue and it has nowhere to file its findings.
+**Accounts, permissions and the request queue went with the login.** An approval means something
+only when the approver and the requester are different people; here they are the same person.
+**Following a series** went too, because it worked by turning each new episode into a *request* —
+without the queue it has nowhere to file what it finds.
 
 **Docker, the compose templates and the ghcr workflow are gone.** The deliverable is a `.app`, and
 the things this app does are the things a container cannot: open a window, put a progress bar on the
-Dock icon, post to Notification Center, and open the native folder picker. Shipping a macOS app
-inside a Linux image is not a smaller version of that — it is a different program.
+Dock icon, post to Notification Center, and open the native folder picker.
 
 **Apprise notification channels became native notifications.** Discord, Telegram and ntfy exist to
 reach someone who is not at the machine; the user of this app is at the machine, so `app/notify.py`
 posts to Notification Center instead. Apprise also loads its plugins dynamically, which is the worst
 possible shape for a PyInstaller bundle to freeze.
 
-**Post-download webhooks are gone.** They existed to tell Jellyfin to rescan its library. With
-Jellyfin no longer in the loop, the only remaining use was announcing a finished download, which the
-notification already does.
-
 **`panel.db` and the database layer are gone.** Every table in it was `jf_*`. What is left is JSON
 under Application Support: settings in `data.json`, the download ledger in `downloads.json`.
 
-**Scheduling a download for later was removed** as unused — it is the one item here that has nothing
-to do with the change of shape.
+**Scheduling a download for later was removed**, also unused.
 
 ---
 
