@@ -3,7 +3,7 @@
 # into the app bundle.
 -r requirements.txt
 
-httpx        # required by fastapi.testclient
+httpx2       # required by fastapi.testclient
 pytest
 pyinstaller
 pillow
