@@ -1,42 +1,50 @@
 # StreamingCommunity Downloader
 
-Un'app macOS per cercare e scaricare film, serie TV e anime da StreamingCommunity e AnimeUnity.
-Si apre, si scarica, si chiude: nessun browser, nessun comando da terminale, nessun server da
-avviare a mano.
+A macOS app that searches and downloads films, TV series and anime from StreamingCommunity and
+AnimeUnity. Open it, download, close it: no browser, no terminal, no server to start by hand.
+
+Fork of [EdoardoFiore/StreamingCommunity-downloader](https://github.com/EdoardoFiore/StreamingCommunity-downloader),
+a self-hosted multi-user web panel. This fork keeps the download engine and rebuilds everything
+around it as a single-user desktop app — see [What this fork changed](#what-this-fork-changed).
+
+The interface is in Italian.
 
 ---
 
-## Cosa fa
+## What it does
 
-- Cerca e scarica film, serie TV e anime
-- **Ritrova il dominio della fonte da solo** quando cambia: lo cerca, lo verifica e lo propone
-- Trama, generi, voto, locandine e trailer sulla pagina del titolo — nessuna chiave API
-- Qualità scelta automaticamente (1080p → 720p → 480p → 360p)
-- Download dei segmenti HLS in parallelo, con decifratura AES-CBC
-- Tracce audio multiple unite con FFmpeg, sottotitoli `.vtt` scaricati e incorporati
-- Avanzamento in tempo reale, fase per fase (video → audio → unione)
-- **Rilancio dei download falliti** dalla lista, senza rifare la ricerca
-- Download programmati
-- Gestore file integrato, con streaming video e spazio libero sul volume
-- Cartelle di destinazione scegliibili dalle impostazioni, con selettore nativo
-- Notifiche del Centro Notifiche a fine download — una sola per una stagione intera
-- Nomi di file e cartelle configurabili
+- Search and download films, TV series and anime, with filters by kind and an Italian-dub-only
+  filter for anime
+- **Recovers the source domain on its own** when it rotates: finds it, verifies it, and proposes it
+- Plot, genres, rating, artwork and trailer on the title page — read from the page's own payload,
+  so no API key and no extra request
+- Automatic quality selection (1080p → 720p → 480p → 360p)
+- Parallel HLS segment download with AES-CBC decryption, backing off on its own when the source
+  starts refusing
+- Multiple audio tracks merged with FFmpeg, `.vtt` subtitles downloaded alongside
+- Real-time progress, phase by phase (video → audio → merge), and on the Dock icon
+- The download list survives a restart, and a failed download can be **retried from the list**
+  without searching again
+- Optional **HEVC re-encode after download**, on a queue counter of its own
+- Built-in file manager, with video streaming and free space on the volume
+- Notification Center notification when a download lands — one single summary for a whole season
+- Configurable file and folder naming templates
 
 ---
 
-## Installazione
+## Installing
 
-Scarica il `.app`, trascinalo in Applicazioni, aprilo.
+Download the `.app`, drag it into Applications, open it.
 
-Al primo avvio va impostato il **dominio della fonte** in **Impostazioni → Sorgente**: non è incluso
-nell'app perché cambia ogni poche settimane.
+On first run, set the **source domain** in **Impostazioni → Sorgente**: it is not shipped with the
+app, because it changes every few weeks.
 
-Non essendo firmata con un account sviluppatore Apple, la prima apertura di un'app scaricata da
-internet richiede **tasto destro → Apri**. Un `.app` che hai compilato tu si apre normalmente.
+The app is not signed with an Apple developer account, so the first launch of a downloaded copy
+needs **right click → Open**. An `.app` you built yourself opens normally.
 
-### Compilarla
+### Building it
 
-Serve Python ≥ 3.11.
+Python ≥ 3.11.
 
 ```bash
 pip install -r requirements.txt
@@ -44,84 +52,136 @@ pip install -r requirements-dev.txt
 ./scripts/build-release.sh
 ```
 
-Lo script lancia i test, compila, verifica che nel bundle ci sia tutto e lascia l'app in
-`~/Downloads`. Circa 110 MB, autonoma: si porta dietro Python e un FFmpeg statico, quindi non
-richiede nulla di installato sul Mac che la esegue.
+The script runs the tests, builds, checks the bundle has everything it needs, and leaves the app in
+`~/Downloads`. Around 110 MB, self-contained: it carries its own Python and a static FFmpeg, so the
+Mac running it needs nothing installed.
 
-Per compilare senza installare né testare: `pyinstaller StreamingCommunity.spec --noconfirm --clean`,
-che lascia il risultato in `dist/`.
+To build without installing or testing: `pyinstaller StreamingCommunity.spec --noconfirm --clean`,
+which leaves the result in `dist/`.
 
-L'icona sta in `icon/AppIcon.icns` ed è già compilata; si rigenera con `python icon/make_icon.py`.
+The icon lives in `icon/AppIcon.icns`, already compiled; regenerate it with `python icon/make_icon.py`.
 
-### Eseguirla dai sorgenti
+### Running from source
 
 ```bash
 pip install -r requirements.txt
 python desktop.py
 ```
 
-`python main.py` serve invece il pannello su `http://127.0.0.1:8000` in un browser normale, senza
-finestra — comodo per sviluppare, dove i devtools del browser battono una webview.
+`python main.py` serves the panel at `http://127.0.0.1:8000` in an ordinary browser instead, with no
+window — handy for development, where a browser's devtools beat a webview.
 
 ---
 
-## Dove finiscono le cose
+## Where things land
 
-I file scaricati vanno dove dici tu, in **Impostazioni → Librerie**: una cartella per tipo di
-contenuto, scelta col selettore nativo o incollando un percorso. Senza configurazione finiscono in
-`~/Movies/StreamingCommunity`.
+Downloads go where you tell them, in **Impostazioni → Download**: one destination folder, picked
+with the native chooser or by pasting a path. It is also the folder the file manager shows, so what
+you download is always where you are looking. Unconfigured, it is `~/Movies/StreamingCommunity`.
 
-Le impostazioni dell'app stanno in
-`~/Library/Application Support/StreamingCommunity Downloader/`.
+The app's own settings live in `~/Library/Application Support/StreamingCommunity Downloader/`.
 
-La struttura delle cartelle segue la convenzione raccomandata dalla
-[documentazione di Jellyfin](https://jellyfin.org/docs/general/server/media/movies/), che è anche
-quella che Plex e Infuse riconoscono senza configurazione:
+The folder structure follows the layout recommended by the
+[Jellyfin documentation](https://jellyfin.org/docs/general/server/media/movies/), which is also the
+one Plex and Infuse recognise with no configuration:
 
 ```
-<libreria>/
-├── Film (2020)/
-│   ├── Film (2020).mkv
-│   └── Film (2020).en.vtt
-└── Serie (2019)/
+<library>/
+├── Movie (2020)/
+│   ├── Movie (2020).mkv
+│   └── Movie (2020).en.vtt
+└── Series (2019)/
     └── Season 01/
-        ├── Serie S01E01.mkv
-        └── Serie S01E02.mkv
+        ├── Series S01E01.mkv
+        └── Series S01E02.mkv
 ```
 
-L'estensione è `.mp4` con una sola traccia audio e `.mkv` quando ce n'è più di una, che è ciò che
-serve per portarne diverse in un file solo.
+The extension is `.mp4` with a single audio track and `.mkv` once there is more than one, which is
+what it takes to carry several in one file.
 
 ---
 
-## Quando la fonte si sposta
+## When the source moves
 
-Il dominio cambia ogni poche settimane, e fino a ieri questo fermava tutto senza spiegare perché.
-Ora l'app se ne accorge, legge l'indirizzo corrente da una pagina pubblica, controlla che serva
-davvero la fonte, e mostra un banner che propone il cambio.
+The domain changes every few weeks, and until recently that stopped everything without explaining
+why. Now the app notices, reads the current address off a public page, checks that it really serves
+the source, and shows a banner proposing the change.
 
-**Propone, non applica.** Quella pagina la scrive gente che non controlliamo, e il dominio decide
-dove finiscono tutte le richieste. Vengono presi in considerazione solo domini di secondo livello
-con un nome riconoscibile, e solo se rispondono come la fonte attesa. In
-**Impostazioni → Sorgente** c'è un interruttore per applicare senza chiedere, spento salvo tua
-scelta, e un pulsante "Controlla ora".
-
----
-
-## Quando lo stream non si risolve
-
-Il video passa dalla pagina embed della fonte, che sta dietro Cloudflare e a volte rifiuta. In quel
-caso la pagina del titolo lo dice subito, invece di lasciarti un pulsante che sembra a posto e un
-download che fallisce dieci minuti dopo.
+**Proposes, does not apply.** That page is written by people we do not control, and the domain
+decides where every request ends up. Only second-level domains with a recognisable name are
+considered, and only if they answer the way the source is expected to. **Impostazioni → Sorgente**
+has a switch to apply without asking — off unless you turn it on — and a "check now" button.
 
 ---
 
-## Note
+## When the stream will not resolve
 
-Un solo processo, sempre: lo stato dei download vive in memoria. Il server è in ascolto solo su
-`127.0.0.1` e non ha login davanti — è una finestra su un processo locale, non un servizio da
-esporre in rete.
+Video goes through the source's embed page, which sits behind Cloudflare and sometimes refuses. When
+that happens the title page says so immediately, instead of leaving you a button that looks fine and
+a download that fails ten minutes later.
 
-## Licenza
+---
 
-MIT
+## Re-encoding
+
+Off by default. It follows the HandBrake "Plex" preset — x265, constant quality 26, capped at 1080p
+without upscaling — and buys about a third of the file size for about a third of the running time in
+CPU. The source arrives already compressed at roughly 1.5 Mbps, so re-encoding wins space and never
+quality; if the result comes out larger than the original, the original is kept.
+
+---
+
+## What this fork changed
+
+The original is a **self-hosted web panel**: a server several people reach over the network, sitting
+next to a Jellyfin instance, in a Docker container. This fork is a **macOS app for one person** —
+the one at the keyboard. Everything below follows from that single change of target, and none of it
+is a defect in the original: it is what a shared service needs and a local window does not.
+
+**Jellyfin SSO, sessions, users and permissions are gone.** Authentication answers "which of you is
+this?", and here there is only ever one answer. The panel used Jellyfin as its identity provider so
+nobody would need a second account; with one user at one machine, what is left is a login screen in
+front of a window that person already opened. Every route is reachable by whoever has the window,
+and the server listens on `127.0.0.1` alone.
+
+Jellyfin *as a media server* is untouched — the output layout still follows its recommended
+convention, and pointing Jellyfin, Plex or Infuse at the download folder works exactly as before.
+What went away is Jellyfin as the thing deciding who you are.
+
+**The request queue and approvals went with it.** An approval only means something when the approver
+and the requester are different people. One user approving their own requests is a dialog box in the
+way of a download they already asked for.
+
+**Following a series went too**, because it worked by turning each new episode into a *request* —
+remove the queue and it has nowhere to file its findings.
+
+**Docker, the compose templates and the ghcr workflow are gone.** The deliverable is a `.app`, and
+the things this app does are the things a container cannot: open a window, put a progress bar on the
+Dock icon, post to Notification Center, and open the native folder picker. Shipping a macOS app
+inside a Linux image is not a smaller version of that — it is a different program.
+
+**Apprise notification channels became native notifications.** Discord, Telegram and ntfy exist to
+reach someone who is not at the machine; the user of this app is at the machine, so `app/notify.py`
+posts to Notification Center instead. Apprise also loads its plugins dynamically, which is the worst
+possible shape for a PyInstaller bundle to freeze.
+
+**Post-download webhooks are gone.** They existed to tell Jellyfin to rescan its library. With
+Jellyfin no longer in the loop, the only remaining use was announcing a finished download, which the
+notification already does.
+
+**`panel.db` and the database layer are gone.** Every table in it was `jf_*`. What is left is JSON
+under Application Support: settings in `data.json`, the download ledger in `downloads.json`.
+
+**Scheduling a download for later was removed** as unused — it is the one item here that has nothing
+to do with the change of shape.
+
+---
+
+## Notes
+
+One process, always: download state lives in memory. The server listens on `127.0.0.1` only and has
+no login in front of it — it is a window onto a local process, not a service to expose on a network.
+
+## Licence
+
+MIT, as the original. See [LICENSE](LICENSE).
