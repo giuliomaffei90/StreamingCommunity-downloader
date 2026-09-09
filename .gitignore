@@ -25,3 +25,7 @@ data.json.lock
 
 # Intermediate, rebuilt by icon/make_icon.py
 icon/AppIcon.iconset/
+
+# Leftover from the multi-user panel: the app has no database any more. The file
+# only reappears because a stray sqlite handle recreates it, empty, in the cwd.
+panel.db*
