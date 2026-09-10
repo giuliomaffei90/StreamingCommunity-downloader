@@ -290,3 +290,24 @@ subtitle languages are chosen per download.
 
 TV episode M3U8 URLs sometimes return 403; appending `?b=1` (or `&b=1`) resolves it. Handled in
 `_fetch_text_with_b1_fallback` and `_collect_audio_tracks`.
+
+## The Swift port (`swift/`)
+
+An experiment: the same app rewritten as a native SwiftUI program, beside the Python one rather
+than in place of it. `cd swift && swift run` opens it, `swift test` runs its checks, and Xcode opens
+`swift/Package.swift` as a project. It needs ffmpeg installed (Homebrew); nothing is bundled yet.
+
+It shares only the library layout with the Python app: `destination()` reproduces the default naming
+templates exactly, and a test holds it there, so both apps fill one library. Settings live in
+UserDefaults, the download list in `swift-downloads.json` in the same Application Support folder.
+
+Not ported, on purpose: the file manager (the Finder does it), naming templates, domain recovery and
+the English translation — every `Text` is a `LocalizedStringKey`, so that one is a String Catalog away.
+
+Learnt while porting, and true of the Python app as well:
+- URLSession with Safari's user agent gets past vixcloud and AnimeUnity without cloudscraper.
+- Every StreamingCommunity page carries its props in `data-page`, so search results, a title and a
+  season read without the Inertia version, the X-Inertia headers or the XSRF token.
+- The `b=1` quirk flips: some days a playlist answers only with it, other days only without it,
+  films included. `Playlist.load` asks without and retries with it on a 403, as `_fetch_m3u8` does.
+- Plots are HTML-escaped at the source, inside a page attribute that escapes them a second time.

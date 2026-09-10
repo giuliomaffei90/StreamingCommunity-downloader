@@ -23,6 +23,10 @@ data.json.lock
 /build/
 /dist/
 
+# Swift port: SwiftPM's build products and Xcode's per-user state
+swift/.build/
+swift/.swiftpm/
+
 # Intermediate, rebuilt by icon/make_icon.py
 icon/AppIcon.iconset/
 
