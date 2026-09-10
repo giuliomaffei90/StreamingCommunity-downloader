@@ -295,7 +295,9 @@ TV episode M3U8 URLs sometimes return 403; appending `?b=1` (or `&b=1`) resolves
 
 An experiment: the same app rewritten as a native SwiftUI program, beside the Python one rather
 than in place of it. `cd swift && swift run` opens it, `swift test` runs its checks, and Xcode opens
-`swift/Package.swift` as a project. It needs ffmpeg installed (Homebrew); nothing is bundled yet.
+`swift/Package.swift` as a project. `swift/build-app.sh` builds a release `.app` into ~/Downloads,
+beside the Python one, and opens it — a build, so only when asked, like the Python one. It needs
+ffmpeg installed (Homebrew): nothing is bundled yet.
 
 It shares only the library layout with the Python app: `destination()` reproduces the default naming
 templates exactly, and a test holds it there, so both apps fill one library. Settings live in
