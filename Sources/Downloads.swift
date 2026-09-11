@@ -51,9 +51,9 @@ func padded(_ number: String) -> String {
     return String(repeating: "0", count: max(0, 2 - whole.count)) + whole + (parts.count > 1 ? "." + parts[1] : "")
 }
 
-/// Where a download lands, without its extension: the layout the Python app's default templates write,
-/// kept exactly so both apps fill one library. Films and anime drop "+" and ","; series keep them, as
-/// they always have, or every series folder already on disk would stop matching.
+/// Where a download lands, without its extension: the layout this app has always written, the Python
+/// version included, kept exactly so a library already on disk goes on matching. Films and anime drop
+/// "+" and ","; series keep them, as they always have, or every series folder would stop matching.
 func destination(_ request: DownloadRequest, in library: URL) -> URL {
     let title = request.title
     let year = title.year.map { $0.isEmpty ? "" : " (\($0))" } ?? ""

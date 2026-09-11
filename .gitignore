@@ -1,35 +1,19 @@
-# Python
-*__pycache__
-.pytest_cache/
-.venv/
-venv/
-
-# Downloads. Not a configured path — that lives outside the repo now — but the
-# folder from before it moved, which still holds files.
-videos/
-
 # macOS
 .DS_Store
 
-# Runtime state, written by the app into ~/Library/Application Support.
-# Kept here because DATA_FILE and friends can still be pointed at the repo by
-# an environment variable, and data.json carries the source domain.
-data.json
-data.json.lock
-
-# Build artifacts (PyInstaller). Anchored to the repo root: a bare "build/"
-# matches a directory of that name at any depth, and swallowed
-# .claude/skills/build/ whole.
-/build/
-/dist/
-
-# Swift port: SwiftPM's build products and Xcode's per-user state
-swift/.build/
-swift/.swiftpm/
+# SwiftPM's build products, and Xcode's per-user state when it opens Package.swift
+/.build/
+/.swiftpm/
 
 # Intermediate, rebuilt by icon/make_icon.py
 icon/AppIcon.iconset/
 
-# Leftover from the multi-user panel: the app has no database any more. The file
-# only reappears because a stray sqlite handle recreates it, empty, in the cwd.
+# Left on this machine by the Python app this one replaced: its environment, its PyInstaller
+# output, the folder its downloads used to land in (which may still hold files) and its leftover
+# database. Ignored rather than deleted: they are on disk here, not in the repository.
+.venv/
+__pycache__/
+/build/
+/dist/
+/videos/
 panel.db*

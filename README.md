@@ -1,191 +1,108 @@
 # StreamingCommunity Downloader
 
-A macOS app that searches and downloads films, TV series and anime from StreamingCommunity and
-AnimeUnity. Open it, download, close it: no browser, no terminal, no server to start by hand.
+A native macOS app that searches and downloads films, TV series and anime from StreamingCommunity and
+AnimeUnity. Open it, download, close it.
 
 Fork of [EdoardoFiore/StreamingCommunity-downloader](https://github.com/EdoardoFiore/StreamingCommunity-downloader),
-a self-hosted multi-user web panel. This fork keeps the download engine and rebuilds everything
-around it as a single-user desktop app — see [What this fork changed](#what-this-fork-changed).
+a self-hosted multi-user web panel. This fork is a single-user Mac app written in SwiftUI — see
+[What this fork changed](#what-this-fork-changed).
 
-The interface is in Italian or English, switched in **Impostazioni** / **Settings**.
+The interface is in Italian or English, chosen in **Impostazioni** / **Settings**.
 
 ---
 
 ## What it does
 
-- Search and download films, TV series and anime, with filters by kind and an Italian-dub-only
-  filter for anime
-- **Recovers the source domain on its own** when it rotates: finds it, verifies it, and proposes it
-- Plot, genres, rating, artwork and trailer on the title page — read from the page's own payload,
-  so no API key and no extra request
-- Automatic quality selection (1080p → 720p → 480p → 360p)
-- Parallel HLS segment download with AES-CBC decryption, backing off on its own when the source
-  starts refusing
-- Multiple audio tracks merged with FFmpeg, `.vtt` subtitles downloaded alongside
-- Real-time progress, phase by phase (video → audio → merge), and on the Dock icon
-- The download list survives a restart, and a failed download can be **retried from the list**
-  without searching again
-- Optional **HEVC re-encode after download**, on a queue counter of its own
-- Built-in file manager, with video streaming and free space on the volume
-- Notification Center notification when a download lands — one single summary for a whole season
-- Configurable file and folder naming templates
-- Interface in Italian or English
+- Search films, TV series and anime, filtered by kind, with an Italian-dub-only filter for anime
+- A start page with what each source puts on its front page: trending, recently added, today's top
+  ten, the latest anime episodes
+- Plot, genres, rating and trailer for each title, and its audio and subtitle languages to choose
+  from
+- Whole seasons, whole series or every episode of an anime in one go
+- Highest available quality, parallel segment download with AES-128 decryption, backing off on its
+  own when the source starts refusing
+- Several audio tracks and the subtitles muxed into one file as selectable tracks
+- Progress step by step, in the list and on the Dock icon; a failed download can be retried from the
+  list
+- An optional HEVC re-encode after each download
+- A File tab with what was downloaded, the free space on the volume, open, show in Finder, move to
+  Trash
+- A notification when a download lands — one summary for a whole season — that shows the file when
+  clicked
 
 ---
 
 ## Installing
 
-Download the `.app`, drag it into Applications, open it.
-
-On first run, set the **source domain** in **Impostazioni → Sorgente**: it is not shipped with the
-app, because it changes every few weeks.
-
-The app is not signed with an Apple developer account, so the first launch of a downloaded copy
-needs **right click → Open**. An `.app` you built yourself opens normally.
-
-### Building it
-
-Python ≥ 3.11.
+It needs **macOS 15** and **ffmpeg**:
 
 ```bash
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+brew install ffmpeg
+```
+
+Then build it:
+
+```bash
 ./scripts/build-release.sh
 ```
 
-The script runs the tests, builds, checks the bundle has everything it needs, and leaves the app in
-`~/Downloads`. Around 110 MB, self-contained: it carries its own Python and a static FFmpeg, so the
-Mac running it needs nothing installed.
+The script runs the tests, builds, and leaves the app in `~/Downloads` and opens it. It is signed ad
+hoc: on the Mac that built it, it opens normally; copied elsewhere, the first launch needs
+**right click → Open**.
 
-To build without installing or testing: `pyinstaller StreamingCommunity.spec --noconfirm --clean`,
-which leaves the result in `dist/`.
+On first run, set the **source domain** in the settings: it is not shipped with the app, because it
+changes every few weeks. The footer of the sidebar shows it in green while it answers and in red once
+it stops. macOS also asks, once, whether the app may post notifications.
 
-The icon lives in `icon/AppIcon.icns`, already compiled; regenerate it with `python icon/make_icon.py`.
-
-### Running from source
+### From source
 
 ```bash
-pip install -r requirements.txt
-python desktop.py
+swift run
+swift test
 ```
 
-`python main.py` serves the panel at `http://127.0.0.1:8000` in an ordinary browser instead, with no
-window — handy for development, where a browser's devtools beat a webview.
+Xcode opens `Package.swift` as a project. Run this way it speaks Italian only and posts no
+notifications: both need the built bundle.
 
 ---
 
 ## Where things land
 
-Downloads go where you tell them, in **Impostazioni → Download**: one destination folder, picked
-with the native chooser or by pasting a path. It is also the folder the file manager shows, so what
-you download is always where you are looking. Unconfigured, it is `~/Movies/StreamingCommunity`.
-
-The app's own settings live in `~/Library/Application Support/StreamingCommunity Downloader/`.
-
-The folder structure follows the layout recommended by the
-[Jellyfin documentation](https://jellyfin.org/docs/general/server/media/movies/), which is also the
-one Plex and Infuse recognise with no configuration:
+In the folder chosen in the settings, `~/Movies/StreamingCommunity` unless changed, laid out the way
+the [Jellyfin documentation](https://jellyfin.org/docs/general/server/media/movies/) recommends and
+Plex and Infuse recognise with no configuration:
 
 ```
 <library>/
 ├── Movie (2020)/
-│   ├── Movie (2020).mkv
-│   └── Movie (2020).en.vtt
+│   └── Movie (2020).mkv
 └── Series (2019)/
     └── Season 01/
         ├── Series S01E01.mkv
         └── Series S01E02.mkv
 ```
 
-The extension is `.mp4` with a single audio track and `.mkv` once there is more than one, which is
-what it takes to carry several in one file.
-
----
-
-## When the source moves
-
-The domain changes every few weeks, and until recently that stopped everything without explaining
-why. Now the app notices, reads the current address off a public page, checks that it really serves
-the source, and shows a banner proposing the change.
-
-**Proposes, does not apply.** That page is written by people we do not control, and the domain
-decides where every request ends up. Only second-level domains with a recognisable name are
-considered, and only if they answer the way the source is expected to. **Impostazioni → Sorgente**
-has a switch to apply without asking — off unless you turn it on — and a "check now" button.
-
----
-
-## When the stream will not resolve
-
-Video goes through the source's embed page, which sits behind Cloudflare and sometimes refuses. When
-that happens the title page says so immediately, instead of leaving you a button that looks fine and
-a download that fails ten minutes later.
+The file is `.mp4` with a single audio track and no subtitles, and `.mkv` otherwise.
 
 ---
 
 ## Re-encoding
 
-Off by default. It follows the HandBrake "Plex" preset — x265, constant quality 26, capped at 1080p
+Off by default. It follows HandBrake's "Plex" preset — x265, constant quality 26, capped at 1080p
 without upscaling — and buys about a third of the file size for about a third of the running time in
-CPU. The source arrives already compressed at roughly 1.5 Mbps, so re-encoding wins space and never
-quality; if the result comes out larger than the original, the original is kept.
+CPU. If the result comes out larger than the original, the original is kept.
 
 ---
 
 ## What this fork changed
 
-The original is a **self-hosted web panel**: a server several people reach over the network, running
-in Docker, with a Jellyfin instance next to it. This fork is a **macOS app for one person**, and
-most of what is gone was gone for the plainest of reasons — it was never used here. None of it is a
-defect in the original: it is what a shared service needs and a local window does not.
-
-**The whole Jellyfin integration is gone.** The original could log you in with Jellyfin credentials,
-take a library path, refresh the library when a download landed, and fire a webhook telling it to
-rescan. None of that was ever used, and unused code is not free: it has to be carried, frozen into
-the bundle, and kept working.
-
-Jellyfin *as a media server* is untouched. The output layout still follows its recommended
-convention, so pointing Jellyfin, Plex or Infuse at the download folder works exactly as before.
-What went away is the app talking to it.
-
-**Accounts, permissions and the request queue went with the login**, unused like the rest of it —
-and an approval would have meant nothing anyway with the approver and the requester being the same
-person. **Following a series** went too: it worked by turning each new episode into a *request*, so
-without the queue it had nowhere to file what it found.
-
-**Docker, the compose templates and the ghcr workflow are gone.** The deliverable is a `.app`, and
-the things this app does are the things a container cannot: open a window, put a progress bar on the
-Dock icon, post to Notification Center, and open the native folder picker.
-
-**Apprise notification channels became native notifications.** Discord, Telegram and ntfy exist to
-reach someone who is not at the machine; the user of this app is at the machine, so `app/notify.py`
-posts to Notification Center instead. Apprise also loads its plugins dynamically, which is the worst
-possible shape for a PyInstaller bundle to freeze.
-
-**`panel.db` and the database layer are gone.** Every table in it was `jf_*`. What is left is JSON
-under Application Support: settings in `data.json`, the download ledger in `downloads.json`.
-
-**Scheduling a download for later was removed**, also unused.
+The original is a **self-hosted web panel** for several people, run in Docker next to a Jellyfin
+instance. This fork first became a Python desktop app for one person — the accounts, the request
+queue, the Jellyfin integration and Docker went, unused — and was then rewritten as a **native macOS
+app**: SwiftUI instead of a web page in a window, URLSession instead of a Python HTTP stack, the
+system's own notifications, settings window, folder picker and Finder.
 
 ---
-
-## Language
-
-The interface is written in Italian, and English is a lookup away from it: the keys in
-`app/static/i18n.js` are the Italian strings themselves, so anything nobody has translated falls
-back to what the code already said rather than to a blank. Static text is translated by walking the
-page once at load; what the JavaScript builds goes through `t()`. Changing the language reloads the
-page, which is what makes it unnecessary to re-render every open list and modal in place.
-
-Titles, plots and episode names are not translated. They are not interface, they are what the
-source sent.
-
----
-
-## Notes
-
-One process, always: download state lives in memory. The server listens on `127.0.0.1` only and has
-no login in front of it — it is a window onto a local process, not a service to expose on a network.
 
 ## Licence
 

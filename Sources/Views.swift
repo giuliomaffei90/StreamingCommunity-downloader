@@ -562,8 +562,8 @@ struct JobRow: View {
 
 // MARK: Files
 
-/// What this app has downloaded — and the Python app, since both fill one library — as it is on disk
-/// now. Only those, not every video in the folder: the library is often a folder like ~/Downloads that
+/// What this app has downloaded — the Python version it replaced included — as it is on disk now.
+/// Only those, not every video in the folder: the library is often a folder like ~/Downloads that
 /// holds plenty of other things.
 struct FilesView: View {
     @Environment(Downloads.self) private var downloads
@@ -630,6 +630,7 @@ struct FilesView: View {
 
     private func reload() {
         try? FileManager.default.createDirectory(at: libraryFolder, withIntermediateDirectories: true)
+        // The Python version's ledger, still in the same folder, is how its downloads keep showing.
         let ledger = URL.applicationSupportDirectory.appending(path: "StreamingCommunity Downloader/downloads.json")
         let python = ((try? JSONSerialization.jsonObject(with: Data(contentsOf: ledger))) as? [JSON] ?? [])
             .compactMap { string($0["output_path"]) }

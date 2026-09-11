@@ -2,8 +2,8 @@ import XCTest
 @testable import StreamingCommunityDownloader
 
 final class Tests: XCTestCase {
-    /// Byte for byte what the Python app writes, or the two would split one library in two.
-    func testLibraryLayoutMatchesThePythonApp() {
+    /// Byte for byte what the library already holds, or every file in it would look missing.
+    func testLibraryLayoutNeverChanges() {
         func path(_ title: Title, _ episode: Episode? = nil, season: Int? = nil) -> String {
             let request = DownloadRequest(title: title, episode: episode, season: season, audio: [], subtitles: [])
             return destination(request, in: URL(filePath: "/L")).path

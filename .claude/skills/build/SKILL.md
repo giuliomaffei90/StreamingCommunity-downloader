@@ -11,45 +11,34 @@ Run the script. It does everything and stops at the first thing that is wrong:
 ./scripts/build-release.sh
 ```
 
-It runs the tests, closes any running instance of the app, builds
-`StreamingCommunity.spec`, checks the bundle actually contains what it needs,
-copies the result over whatever is in `~/Downloads`, and opens it.
+It runs the tests, builds the release binary, lists any interface string that has no English line,
+closes any running instance of the app, assembles the bundle in `~/Downloads`, stamps the icon on
+it and opens it.
 
-Do not filter the script's output down to the last few lines: the "Chiusura
-istanze" line is worth reporting and gets lost that way.
+Do not filter the script's output down to the last few lines: the "Chiusura istanze" line and any
+"senza inglese" line are worth reporting, and get lost that way.
 
 ## Report back
 
-- Where it landed, its version and its size — the script prints all three.
+- Where it landed and its size — the script prints both.
 - That it is now running, since the script opens it.
-- That a running instance was closed, if the script said so — a download that
-  was in flight did not survive it.
-- That it is unsigned: on this Mac it opens normally, elsewhere it needs
-  right-click → Open the first time.
+- That a running instance was closed, if the script said so — a download that was in flight did not
+  survive it.
+- Any string listed "senza inglese": it shows in Italian on an English interface until it gets its
+  line in `Resources/en.lproj/Localizable.strings`.
+- That it is signed ad hoc: on this Mac it opens normally, elsewhere it needs right-click → Open the
+  first time.
 
 ## When it fails
 
-**Tests red.** Nothing was built. Report the failures; do not build around them
-by editing the script.
+**Tests red.** Nothing was built. Report the failures; do not build around them by editing the
+script.
 
-**A missing-file check failed.** The bundle built but something is not in it.
-Almost always a data file or a dynamically imported module that PyInstaller's
-analysis cannot see — the fix goes in `StreamingCommunity.spec`, in `datas` or
-`hiddenimports`, not into the build script. `StreamingCommunity.spec` explains
-the three that already exist and why.
-
-**The app builds but the window is blank.** `webview` injects its own
-JavaScript from files beside the module; that is why the spec collects it whole.
-Check that `collect_all("webview")` is still there.
+**"esiste e non è una build di quest'app".** Something else sits at the app's path in `~/Downloads`
+— an old build of the Python app, for instance. Tell the user; do not delete it yourself.
 
 ## The icon
 
-`icon/AppIcon.icns` is committed and the build just reads it. It is regenerated
-only when the icon itself changes:
-
-```bash
-python icon/make_icon.py
-```
-
-That needs Pillow, which is a development dependency — the build must never
-require it.
+`icon/AppIcon.icns` is committed and the build just reads it. It is regenerated only when the icon
+itself changes, with `python icon/make_icon.py` — Python and Pillow as a development tool for that
+one file; neither the app nor its build needs them.
