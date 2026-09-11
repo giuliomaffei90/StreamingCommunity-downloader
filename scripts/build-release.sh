@@ -10,6 +10,8 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXE="StreamingCommunityDownloader"
+# Bumped in the commit that cuts a release, and tagged vX.Y.Z to match: see the release skill.
+VERSION="1.0.0"
 APP="$HOME/Downloads/StreamingCommunity Downloader.app"
 cd "$REPO"
 
@@ -72,6 +74,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key><string>local.streamingcommunity.swift</string>
   <key>CFBundleDevelopmentRegion</key><string>it</string>
   <key>CFBundleName</key><string>StreamingCommunity Downloader</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>CFBundleExecutable</key><string>$EXE</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -86,8 +90,8 @@ codesign --force --deep -s - "$APP"
 
 SIZE="$(du -sh "$APP" | cut -f1)"
 echo
-echo "Pronta: $APP · $SIZE"
-echo "Firmata ad hoc: sul tuo Mac si apre normalmente, altrove serve tasto destro > Apri."
+echo "Pronta: $APP · $VERSION · $SIZE"
+echo "Firmata ad hoc: sul tuo Mac si apre normalmente, altrove va sbloccata in Impostazioni di Sistema > Privacy e sicurezza."
 
 echo
 echo "==> Avvio"

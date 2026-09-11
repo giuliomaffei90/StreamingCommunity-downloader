@@ -43,15 +43,18 @@ It needs **macOS 15** and **ffmpeg**:
 brew install ffmpeg
 ```
 
-Then build it:
+Then download the DMG from [Releases](https://github.com/giuliomaffei90/StreamingCommunity-downloader/releases)
+and drag the app into Applications. It is signed ad hoc and not notarized, so macOS blocks its first
+launch: open **System Settings → Privacy & Security** and choose **Open Anyway**.
+
+Or build it:
 
 ```bash
 ./scripts/build-release.sh
 ```
 
-The script runs the tests, builds, and leaves the app in `~/Downloads` and opens it. It is signed ad
-hoc: on the Mac that built it, it opens normally; copied elsewhere, the first launch needs
-**right click → Open**.
+The script runs the tests, builds, and leaves the app in `~/Downloads` and opens it. On the Mac that
+built it, it opens normally.
 
 On first run, set the **source domain** in the settings: it is not shipped with the app, because it
 changes every few weeks. The footer of the sidebar shows it in green while it answers and in red once

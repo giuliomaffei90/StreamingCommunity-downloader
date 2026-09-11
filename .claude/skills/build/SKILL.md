@@ -26,8 +26,8 @@ Do not filter the script's output down to the last few lines: the "Chiusura ista
   survive it.
 - Any string listed "senza inglese": it shows in Italian on an English interface until it gets its
   line in `Resources/en.lproj/Localizable.strings`.
-- That it is signed ad hoc: on this Mac it opens normally, elsewhere it needs right-click → Open the
-  first time.
+- That it is signed ad hoc: on this Mac it opens normally; elsewhere the first launch is blocked until
+  allowed in System Settings → Privacy & Security.
 
 ## When it fails
 

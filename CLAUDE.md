@@ -47,6 +47,8 @@ swift test                     # the checks
 ./scripts/build-release.sh     # the .app, into ~/Downloads — only when asked
 ```
 
+Publishing a release — version, notes, tag, DMG — follows `.claude/skills/release/SKILL.md`.
+
 Xcode opens `Package.swift` as a project. The app needs **macOS 15**, for the sidebar of tabs, and
 **ffmpeg**: `FFMPEG_PATH` if set, then `PATH`, then `/opt/homebrew/bin` and `/usr/local/bin`,
 because an app opened from the Finder gets a `PATH` without Homebrew in it. Nothing is bundled yet.
