@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UserNotifications
 
 struct DownloadRequest: Codable, Hashable {
     var title: Title
@@ -227,8 +228,10 @@ struct Job: Identifiable, Codable {
         guard let job = jobs.first(where: { $0.id == id }) else { return }
         guard let batch = job.batch else {
             switch job.status {
-            case .done: notify(String(localized: "Download completato"), String(localized: "«\(job.request.label)» è pronto in libreria."))
-            case .failed: notify(String(localized: "Download fallito"), "«\(job.request.label)»: \(job.detail)")
+            case .done:
+                Notifier.shared.post(String(localized: "Download completato"),
+                                     String(localized: "«\(job.request.label)» è pronto in libreria."), file: job.output)
+            case .failed: Notifier.shared.post(String(localized: "Download fallito"), "«\(job.request.label)»: \(job.detail)")
             default: break  // cancelling is a decision, not news
             }
             return
@@ -237,19 +240,52 @@ struct Job: Identifiable, Codable {
         guard !group.contains(where: \.status.isActive) else { return }
         let done = group.filter { $0.status == .done }.count, failed = group.filter { $0.status == .failed }.count
         let name = job.request.title.name, total = group.count
-        notify(failed == 0 ? String(localized: "Download completati") : String(localized: "Download completati con errori"),
-               failed == 0 ? String(localized: "«\(name)»: \(done) episodi su \(total) scaricati.")
-                           : String(localized: "«\(name)»: \(done) episodi su \(total) scaricati, \(failed) falliti."))
+        Notifier.shared.post(failed == 0 ? String(localized: "Download completati") : String(localized: "Download completati con errori"),
+                             failed == 0 ? String(localized: "«\(name)»: \(done) episodi su \(total) scaricati.")
+                                         : String(localized: "«\(name)»: \(done) episodi su \(total) scaricati, \(failed) falliti."),
+                             file: group.last { $0.status == .done }?.output)
     }
 }
 
-/// Notification Center through osascript, as the Python app did. The text travels as argv, never inside
-/// the script: a title like `Ocean"s Eleven` interpolated into AppleScript stops being data.
-func notify(_ title: String, _ message: String) {
-    guard UserDefaults.standard.bool(forKey: "notifications") else { return }
-    let process = Process()
-    process.executableURL = URL(filePath: "/usr/bin/osascript")
-    process.arguments = ["-e", "on run argv\ndisplay notification (item 1 of argv) with title (item 2 of argv)\nend run",
-                         message, title]
-    try? process.run()
+/// Notification Center as the app itself — its name, its icon — rather than through osascript, which
+/// posted as Script Editor and opened Script Editor when clicked. A click shows the file in the Finder.
+/// Only a bundle has an identity to post under, so `swift run` stays silent.
+@MainActor final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = Notifier()
+    private var center: UNUserNotificationCenter? { Bundle.main.bundleIdentifier == nil ? nil : .current() }
+
+    /// At launch, so that a click that reopens the app still reaches the delegate. macOS asks once.
+    func start() {
+        guard let center else { return }
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func post(_ title: String, _ body: String, file: URL? = nil) {
+        guard UserDefaults.standard.bool(forKey: "notifications"), let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        if let file { content.userInfo = ["file": file.path] }
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    /// Shown even with the app in front, as before.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    /// The file, selected in its folder; the library when there is no file to point at, or it has gone.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let path = response.notification.request.content.userInfo["file"] as? String
+        await MainActor.run {
+            if let path, FileManager.default.fileExists(atPath: path) {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)])
+            } else {
+                NSWorkspace.shared.open(libraryFolder)
+            }
+        }
+    }
 }

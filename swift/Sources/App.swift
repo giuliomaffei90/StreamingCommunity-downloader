@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `swift run` starts a bare executable, which macOS treats as a background tool until told otherwise.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        MainActor.assumeIsolated { Notifier.shared.start() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
