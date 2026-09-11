@@ -104,19 +104,27 @@ enum StreamingCommunity {
         return url
     }
 
-    /// The props of a server-rendered page: the same JSON the site's XHR API answers, read out of the
-    /// `data-page` attribute — so no asset version, no X-Inertia headers and no XSRF token.
-    static func props(_ url: URL) async throws -> JSON {
+    /// The page object of a server-rendered page: the same JSON the site's XHR API answers, read out of
+    /// the `data-page` attribute — so no asset version, no X-Inertia headers and no XSRF token.
+    static func page(_ url: URL) async throws -> JSON {
         let html = String(decoding: try await fetch(url), as: UTF8.self)
         guard let match = html.firstMatch(of: #/data-page="([^"]*)"/#),
-              let page = try? JSONSerialization.jsonObject(with: Data(String(match.1).htmlUnescaped.utf8)) as? JSON,
-              let props = page["props"] as? JSON
+              let page = try? JSONSerialization.jsonObject(with: Data(String(match.1).htmlUnescaped.utf8)) as? JSON
         else { throw Failure("Risposta inattesa da \(url.host ?? "?"): il dominio è ancora quello giusto?") }
+        return page
+    }
+
+    static func props(_ url: URL) async throws -> JSON {
+        guard let props = try await page(url)["props"] as? JSON else {
+            throw Failure("Risposta inattesa da \(url.host ?? "?"): il dominio è ancora quello giusto?")
+        }
         return props
     }
 
-    static func search(_ query: String, domain: String) async throws -> [Title] {
-        let titles = try await props(url(domain, "/it/search", ["q": query]))["titles"] as? [JSON] ?? []
+    /// One page of results, sixty to a page as the site hands them out.
+    static func search(_ query: String, domain: String, page: Int = 1) async throws -> [Title] {
+        let parameters = page > 1 ? ["q": query, "page": "\(page)"] : ["q": query]
+        let titles = try await props(url(domain, "/it/search", parameters))["titles"] as? [JSON] ?? []
         return titles.compactMap { title($0, domain: domain) }
     }
 
@@ -175,10 +183,10 @@ enum AnimeUnity {
 
     /// `/archivio/get-animes` rather than `/livesearch`, which the source caps at eight records: the
     /// archive answers thirty and applies both filters over the whole catalogue.
-    static func search(_ query: String, dubbed: Bool, type: String?) async throws -> [Title] {
+    static func search(_ query: String, dubbed: Bool, type: String?, page: Int = 1) async throws -> [Title] {
         let home = String(decoding: try await fetch(URL(string: "https://\(host)/")!), as: UTF8.self)
         let csrf = home.firstMatch(of: #/<meta name="csrf-token" content="([^"]+)"/#).map { String($0.1) } ?? ""
-        var payload: JSON = ["title": query, "offset": 0]
+        var payload: JSON = ["title": query, "offset": (page - 1) * 30]  // thirty to a page, the source's size
         if dubbed { payload["dubbed"] = 1 }
         if let type { payload["type"] = type }
         let data = try await fetch(URL(string: "https://\(host)/archivio/get-animes")!, referer: "https://\(host)/archivio",

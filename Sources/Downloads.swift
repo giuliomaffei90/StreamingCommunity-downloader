@@ -261,13 +261,16 @@ struct Job: Identifiable, Codable {
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    func post(_ title: String, _ body: String, file: URL? = nil) {
+    /// `library` is where a click without a file goes: a failed download's folder, but not a notice about
+    /// the domain, which is only asking to be looked at.
+    func post(_ title: String, _ body: String, file: URL? = nil, library: Bool = true) {
         guard UserDefaults.standard.bool(forKey: "notifications"), let center else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        if let file { content.userInfo = ["file": file.path] }
+        content.userInfo = ["library": library]
+        if let file { content.userInfo["file"] = file.path }
         center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
@@ -279,11 +282,12 @@ struct Job: Identifiable, Codable {
 
     /// The file, selected in its folder; the library when there is no file to point at, or it has gone.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let path = response.notification.request.content.userInfo["file"] as? String
+        let info = response.notification.request.content.userInfo
+        let path = info["file"] as? String, library = info["library"] as? Bool ?? true
         await MainActor.run {
             if let path, FileManager.default.fileExists(atPath: path) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)])
-            } else {
+            } else if library {
                 NSWorkspace.shared.open(libraryFolder)
             }
         }

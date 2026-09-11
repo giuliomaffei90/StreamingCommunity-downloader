@@ -73,8 +73,11 @@ Do not verify by building; see the working conventions.
 
 ## Architecture
 
-Five files in `Sources/`:
+Six files in `Sources/`:
 
+- `Domain.swift` — finding the source domain again when it rotates: `DomainRecovery` (the page, the
+  guard, the verification) and `DomainWatch` (what the sidebar and the settings show, and the
+  periodic check).
 - `Source.swift` — HTTP (`fetch`, with its retries), StreamingCommunity (search, the home page's
   shelves, a title's details, a season's episodes, the embed), AnimeUnity (search, home, episodes,
   embed), `resolve()` from a vixcloud embed page to the master playlist, and `languages(of:)`.
@@ -94,7 +97,8 @@ Five files in `Sources/`:
 ### Persistence
 
 - **UserDefaults**, under `local.streamingcommunity.swift`: `domain`, `folder`, `maxDownloads`,
-  `maxSegments`, `notifications`, `transcode`, `maxTranscodes`, `produced` (every file written), and
+  `maxSegments`, `notifications`, `transcode`, `maxTranscodes`, `domainAutoCheck`, `domainAutoApply`,
+  `domainCheckMinutes`, `produced` (every file written), and
   `AppleLanguages`, which is what the language setting writes.
 - **`~/Library/Application Support/StreamingCommunity Downloader/swift-downloads.json`** — the
   download list, up to 500 entries. Nothing resumes: a job left active comes back as failed, and
@@ -128,6 +132,15 @@ temporary directory, under `StreamingCommunity/<job id>`, and are removed after 
   films included. `Playlist.load` asks without and retries with it on a 403.
 - **The source domain comes from the settings only**, through `configuredDomain`, which also reduces
   a pasted browser address to its host.
+- **A domain found automatically is proposed, never adopted.** The page it comes from is edited by
+  people we do not control, and the domain decides where every request goes. `DomainRecovery.rejection()`
+  is the guard, and its load-bearing rule is that a candidate must be a **second-level domain**:
+  checking only the first label would accept `streamingcommunity.attacker.tld`, where the part that
+  decides where the traffic lands is the attacker's. The name pattern is a constant with an
+  environment override and **must not become a setting** — a text box that relaxes this guard is a
+  loaded gun. A candidate must also resolve to public addresses only and serve a page object with a
+  version, stricter than a domain typed in by hand. `domainAutoApply` opts out of proposing and is off
+  by default; the page is read at most once every ten minutes.
 - **Two jobs never write one file.** `enqueue` refuses a request whose destination an active job
   already has.
 - **Retrying drops the batch.** The season summary already counted the failure, and may have been
@@ -174,7 +187,5 @@ resolution is taken; audio and subtitle languages are chosen per title.
   approvals, followed series, Apprise notification channels, Docker, `panel.db`, scheduling a
   download for later, post-download webhooks — went before the Python app became a desktop app. One
   user at one machine; re-adding any of it means re-adding the layer under it.
-- **The Python app** was replaced by this one. What it had and this does not, yet: finding the source
-  domain again when it rotates (it proposed a candidate read off a third-party page, guarded to
-  second-level domains only), naming templates, renaming and moving files inside the app, and
-  "Carica altri" in the search results.
+- **The Python app** was replaced by this one. What it had and this does not, yet: naming templates,
+  and renaming and moving files inside the app.

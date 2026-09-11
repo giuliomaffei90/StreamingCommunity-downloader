@@ -22,16 +22,36 @@ struct ContentView: View {
 }
 
 /// The source domain, green while it answers and red when it does not — the first thing to look at
-/// when searches stop working, since it rotates every few weeks — and the way into the settings,
-/// which open in their own window as the Python panel's did in a modal.
+/// when searches stop working, since it rotates every few weeks — the replacement when one has been
+/// found, and the way into the settings, which open in their own window as the Python panel's did.
 struct SidebarFooter: View {
     @AppStorage("domain") private var domain = ""
-    @State private var answers: Bool?
+    @Environment(DomainWatch.self) private var watch
 
-    private var color: Color { configuredDomain.isEmpty || answers == false ? .red : answers == true ? .green : .gray }
+    private var color: Color {
+        configuredDomain.isEmpty || watch.answers == false ? .red : watch.answers == true ? .green : .gray
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let candidate = watch.candidate {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("La sorgente ha cambiato dominio").font(.caption.weight(.semibold))
+                    Text(verbatim: candidate)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    HStack {
+                        Button("Applica") { Task { await watch.apply(candidate) } }
+                        Button("Ignora") { watch.dismiss() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
             SettingsLink {
                 (configuredDomain.isEmpty ? Text("Nessun dominio") : Text(verbatim: configuredDomain))
                     .font(.callout.weight(.semibold))
@@ -43,7 +63,7 @@ struct SidebarFooter: View {
                     .background(color.opacity(0.18), in: Capsule())
             }
             .buttonStyle(.plain)
-            .help(answers == false ? Text("Il dominio non risponde: cambialo nelle Impostazioni") : Text(verbatim: ""))
+            .help(watch.answers == false ? Text("Il dominio non risponde: cambialo nelle Impostazioni") : Text(verbatim: ""))
             SettingsLink {
                 Label("Impostazioni", systemImage: "gearshape")
                     .labelStyle(.titleAndIcon)  // a bottom bar would otherwise reduce it to the icon
@@ -54,16 +74,11 @@ struct SidebarFooter: View {
         }
         .padding(12)
         .frame(minWidth: 190, alignment: .leading)  // the tab sidebar sizes itself to its labels, too narrow for these
-        .task(id: domain) { await check() }
-    }
-
-    private func check() async {
-        answers = nil
-        guard !configuredDomain.isEmpty else { return }
         // Typing a domain restarts this on every keystroke; the wait lets only the last one ask.
-        guard (try? await Task.sleep(for: .milliseconds(600))) != nil else { return }
-        let page = try? await StreamingCommunity.props(StreamingCommunity.url(configuredDomain, "/"))
-        if !Task.isCancelled { answers = page != nil }
+        .task(id: domain) {
+            guard (try? await Task.sleep(for: .milliseconds(600))) != nil else { return }
+            await watch.check()
+        }
     }
 }
 
@@ -128,6 +143,11 @@ struct SearchView: View {
     @State private var shelvesFor = ""
     @State private var shelvesError: String?
     @State private var selected: Title?
+    @State private var page = 1
+    @State private var pageSize = 0
+    @State private var more = false
+    @State private var loadingMore = false
+    @State private var moreError: String?
 
     private var searchKey: [String] { [query, source.rawValue, kind, "\(dubbed)", domain] }
     private var showsShelves: Bool { query.trimmingCharacters(in: .whitespaces).count < 3 }
@@ -165,6 +185,16 @@ struct SearchView: View {
                     }
                 }
                 .padding()
+                if more {
+                    VStack(spacing: 6) {
+                        Button { Task { await loadMore() } } label: {
+                            if loadingMore { ProgressView().controlSize(.small) } else { Text("Carica altri") }
+                        }
+                        .disabled(loadingMore)
+                        if let moreError { Text(moreError).font(.caption).foregroundStyle(.red) }
+                    }
+                    .padding(.bottom, 24)
+                }
             }
         }
         .overlay { overlay }
@@ -225,22 +255,53 @@ struct SearchView: View {
         let key = searchKey
         guard key != lastSearch else { return }  // back on this tab: what is on screen already answers it
         let text = query.trimmingCharacters(in: .whitespaces)
-        guard text.count >= 3 else { results = []; searchedFor = nil; error = nil; lastSearch = key; return }
+        guard text.count >= 3 else { results = []; searchedFor = nil; error = nil; more = false; lastSearch = key; return }
         do {
             try await Task.sleep(for: .milliseconds(400))
             searching = true
             defer { searching = false }
-            if source == .animeUnity {
-                results = try await AnimeUnity.search(text, dubbed: dubbed, type: kind.isEmpty ? nil : kind)
-            } else {
-                results = try await StreamingCommunity.search(text, domain: configuredDomain)
-                    .filter { kind.isEmpty || $0.kind.rawValue == kind }
-            }
+            let raw = try await fetchPage(text, 1)
+            results = filtered(raw)
+            page = 1
+            pageSize = raw.count
+            more = !raw.isEmpty
+            moreError = nil
             searchedFor = text
             error = nil
             lastSearch = key
         } catch {
             if !Task.isCancelled { self.error = error.localizedDescription; results = [] }
+        }
+    }
+
+    private func fetchPage(_ text: String, _ page: Int) async throws -> [Title] {
+        if source == .animeUnity {
+            return try await AnimeUnity.search(text, dubbed: dubbed, type: kind.isEmpty ? nil : kind, page: page)
+        }
+        return try await StreamingCommunity.search(text, domain: configuredDomain, page: page)
+    }
+
+    /// StreamingCommunity has no kind filter of its own, so its pages are narrowed here; AnimeUnity's
+    /// archive filters by itself.
+    private func filtered(_ raw: [Title]) -> [Title] {
+        source == .animeUnity || kind.isEmpty ? raw : raw.filter { $0.kind.rawValue == kind }
+    }
+
+    /// The next page of the same search. A page shorter than the first is the last there is.
+    private func loadMore() async {
+        let key = searchKey, text = query.trimmingCharacters(in: .whitespaces)
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let raw = try await fetchPage(text, page + 1)
+            guard key == searchKey else { return }  // the search changed while this page was on its way
+            page += 1
+            let known = Set(results.map(\.id))
+            results += filtered(raw).filter { !known.contains($0.id) }
+            more = !raw.isEmpty && raw.count >= pageSize
+            moreError = nil
+        } catch {
+            moreError = error.localizedDescription
         }
     }
 
@@ -669,6 +730,12 @@ struct SettingsView: View {
     @AppStorage("maxTranscodes") private var maxTranscodes = 1
     @Environment(Downloads.self) private var downloads
     @State private var language = SettingsView.languageAtLaunch
+    @AppStorage("domainAutoCheck") private var autoCheck = true
+    @AppStorage("domainAutoApply") private var autoApply = false
+    @AppStorage("domainCheckMinutes") private var checkMinutes = 360
+    @Environment(DomainWatch.self) private var watch
+    @State private var report: String?
+    @State private var checking = false
 
     /// The language this run speaks, read once, for a new choice to be compared against.
     private static let languageAtLaunch =
@@ -682,6 +749,28 @@ struct SettingsView: View {
                 Text("Sorgente")
             } footer: {
                 Text("Cambia ogni poche settimane: incolla qui quello nuovo, anche l'indirizzo copiato dal browser.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Cerca il dominio nuovo quando quello attuale non risponde", isOn: $autoCheck)
+                Toggle("Applicalo senza chiedere", isOn: $autoApply).disabled(!autoCheck)
+                Stepper("Controllo ogni \(checkMinutes) minuti", value: $checkMinutes, in: 30...1440, step: 30)
+                LabeledContent {
+                    Button("Controlla ora") {
+                        Task {
+                            checking = true
+                            report = describe(await watch.check(force: true))
+                            checking = false
+                        }
+                    }
+                    .disabled(checking)
+                } label: {
+                    if checking { ProgressView().controlSize(.small) } else { Text(report ?? "") }
+                }
+            } header: {
+                Text("Recupero del dominio")
+            } footer: {
+                Text("Il dominio nuovo si legge da una pagina esterna che non controlliamo. Si considerano solo domini di secondo livello con un nome riconosciuto, che risolvono a indirizzi pubblici e rispondono davvero come la sorgente; di norma vengono solo proposti, in fondo alla barra laterale.")
                     .foregroundStyle(.secondary)
             }
             Section("Download") {
@@ -726,6 +815,20 @@ struct SettingsView: View {
         .navigationTitle("Impostazioni")
         // The app's own AppleLanguages, which is what System Settings writes for a per-app language.
         .onChange(of: language) { UserDefaults.standard.set([language], forKey: "AppleLanguages") }
+    }
+
+    private func describe(_ outcome: DomainWatch.Outcome?) -> String {
+        guard let outcome else { return "" }
+        if let found = outcome.candidate {
+            return outcome.applied ? String(localized: "Applicato «\(found)».")
+                                   : String(localized: "Trovato «\(found)»: da applicare, in fondo alla barra laterale.")
+        }
+        if outcome.answers { return String(localized: "Il dominio attuale risponde.") }
+        if outcome.rejected.isEmpty { return String(localized: "Nessun dominio trovato.") }
+        // Shown rather than swallowed: a rebranded source and an edited page look alike from here, and
+        // only a person can tell them apart.
+        let why = outcome.rejected.map { "\($0.host) (\($0.reason))" }.joined(separator: ", ")
+        return String(localized: "Nessun dominio adottabile. Scartati: \(why)")
     }
 
     /// A fresh copy once this one has quit. The path travels as an argument, never inside the script.

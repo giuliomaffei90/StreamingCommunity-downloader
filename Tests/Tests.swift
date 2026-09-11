@@ -71,4 +71,21 @@ final class Tests: XCTestCase {
         allowance = await limiter.allowance
         XCTAssertEqual(allowance, 9)
     }
+
+    /// The guard between a page anyone can edit and where every request goes.
+    func testDomainGuard() {
+        XCTAssertNil(DomainRecovery.rejection("streamingcommunityz.taxi"))
+        XCTAssertNil(DomainRecovery.rejection("www.streamingunity.to"))
+        XCTAssertNotNil(DomainRecovery.rejection("streamingcommunity.attacker.tld"))  // the load-bearing rule
+        XCTAssertNotNil(DomainRecovery.rejection("evil.com"))
+        XCTAssertNotNil(DomainRecovery.rejection("192.168.1.1"))
+        XCTAssertNotNil(DomainRecovery.rejection("streamingcommunity.local"))
+        XCTAssertTrue(DomainRecovery.isPublic([8, 8, 8, 8]))
+        XCTAssertFalse(DomainRecovery.isPublic([192, 168, 1, 1]))
+        XCTAssertFalse(DomainRecovery.isPublic([100, 64, 0, 1]))
+        XCTAssertFalse(DomainRecovery.isPublic([UInt8](repeating: 0, count: 10) + [0xff, 0xff, 127, 0, 0, 1]))
+        XCTAssertFalse(DomainRecovery.isPublic([0xfe, 0x80] + [UInt8](repeating: 0, count: 14)))
+        let page = #"<p><a href="https://streamingcommunityz.taxi/">a</a> <a href="http://plain.example">b</a> <a href="https://t.me/x">c</a></p>"#
+        XCTAssertEqual(DomainRecovery.hosts(in: page), ["streamingcommunityz.taxi", "t.me"])
+    }
 }

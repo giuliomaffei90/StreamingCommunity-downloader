@@ -135,3 +135,32 @@
 "ffmpeg non trovato: installalo con «brew install ffmpeg»" = "ffmpeg not found: install it with “brew install ffmpeg”";
 "ffmpeg: %@" = "ffmpeg: %@";
 "Impossibile sostituire %@" = "Could not replace %@";
+
+/* Search pages */
+"Carica altri" = "Load more";
+
+/* Domain recovery */
+"La sorgente ha cambiato dominio" = "The source has moved";
+"Applica" = "Apply";
+"Ignora" = "Dismiss";
+"Recupero del dominio" = "Domain recovery";
+"Cerca il dominio nuovo quando quello attuale non risponde" = "Look for the new domain when the current one stops answering";
+"Applicalo senza chiedere" = "Apply it without asking";
+"Controllo ogni %lld minuti" = "Check every %lld minutes";
+"Controlla ora" = "Check now";
+"Il dominio nuovo si legge da una pagina esterna che non controlliamo. Si considerano solo domini di secondo livello con un nome riconosciuto, che risolvono a indirizzi pubblici e rispondono davvero come la sorgente; di norma vengono solo proposti, in fondo alla barra laterale." = "The new domain is read off an external page we do not control. Only second-level domains with a recognised name, resolving to public addresses and really answering as the source, are considered; normally they are only proposed, at the foot of the sidebar.";
+"Dominio sorgente" = "Source domain";
+"Il dominio della sorgente è cambiato: ora è «%@», applicato da solo." = "The source's domain has changed: it is now “%@”, applied on its own.";
+"La sorgente non risponde più su «%@». Trovato «%@»: apri l'app per applicarlo." = "The source no longer answers on “%@”. Found “%@”: open the app to apply it.";
+"Applicato «%@»." = "Applied “%@”.";
+"Trovato «%@»: da applicare, in fondo alla barra laterale." = "Found “%@”: apply it at the foot of the sidebar.";
+"Il dominio attuale risponde." = "The current domain answers.";
+"Nessun dominio trovato." = "No domain found.";
+"Nessun dominio adottabile. Scartati: %@" = "No usable domain. Rejected: %@";
+"forma non valida" = "invalid form";
+"nome locale" = "local name";
+"indirizzo IP" = "IP address";
+"non è un dominio di secondo livello" = "not a second-level domain";
+"nome «%@» non riconosciuto" = "name “%@” not recognised";
+"risolve a un indirizzo non pubblico" = "resolves to a non-public address";
+"non verificato" = "not verified";

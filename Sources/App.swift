@@ -5,20 +5,22 @@ import SwiftUI
 struct StreamingCommunityApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var downloads = Downloads()
+    @State private var watch = DomainWatch()
 
     init() {
         UserDefaults.standard.register(defaults: [
             "maxDownloads": 3, "maxSegments": 16, "notifications": true, "transcode": false, "maxTranscodes": 1,
+            "domainAutoCheck": true, "domainAutoApply": false, "domainCheckMinutes": 360,
         ])
     }
 
     var body: some Scene {
         Window("StreamingCommunity Downloader", id: "main") {
-            ContentView().environment(downloads)
+            ContentView().environment(downloads).environment(watch)
         }
         .defaultSize(width: 1280, height: 860)
         .windowResizability(.contentMinSize)
-        Settings { SettingsView().frame(width: 520, height: 700).environment(downloads) }
+        Settings { SettingsView().frame(width: 520, height: 760).environment(downloads).environment(watch) }
     }
 }
 

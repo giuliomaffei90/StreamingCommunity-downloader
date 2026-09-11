@@ -13,7 +13,10 @@ The interface is in Italian or English, chosen in **Impostazioni** / **Settings*
 
 ## What it does
 
-- Search films, TV series and anime, filtered by kind, with an Italian-dub-only filter for anime
+- Search films, TV series and anime, filtered by kind, with an Italian-dub-only filter for anime, a
+  page of results at a time
+- **Finds the source domain again when it rotates**: reads the current one off a public page, checks
+  it really serves the source, and proposes it
 - A start page with what each source puts on its front page: trending, recently added, today's top
   ten, the latest anime episodes
 - Plot, genres, rating and trailer for each title, and its audio and subtitle languages to choose
@@ -52,7 +55,10 @@ hoc: on the Mac that built it, it opens normally; copied elsewhere, the first la
 
 On first run, set the **source domain** in the settings: it is not shipped with the app, because it
 changes every few weeks. The footer of the sidebar shows it in green while it answers and in red once
-it stops. macOS also asks, once, whether the app may post notifications.
+it stops; when it moves, the app looks the new one up, and proposes it there once it has checked it
+really serves the source. It never adopts one on its own unless told to in the settings, since the
+page it reads is edited by people nobody here controls. macOS also asks, once, whether the app may
+post notifications.
 
 ### From source
 
