@@ -297,14 +297,15 @@ An experiment: the same app rewritten as a native SwiftUI program, beside the Py
 than in place of it. `cd swift && swift run` opens it, `swift test` runs its checks, and Xcode opens
 `swift/Package.swift` as a project. `swift/build-app.sh` builds a release `.app` into ~/Downloads,
 beside the Python one, and opens it — a build, so only when asked, like the Python one. It needs
-ffmpeg installed (Homebrew): nothing is bundled yet.
+macOS 15, for the sidebar of tabs, and ffmpeg installed (Homebrew): nothing is bundled yet.
 
 It shares only the library layout with the Python app: `destination()` reproduces the default naming
 templates exactly, and a test holds it there, so both apps fill one library. Settings live in
 UserDefaults, the download list in `swift-downloads.json` in the same Application Support folder.
 
-Not ported, on purpose: the file manager (the Finder does it), naming templates, domain recovery and
-the English translation — every `Text` is a `LocalizedStringKey`, so that one is a String Catalog away.
+Not ported, on purpose: naming templates, domain recovery and the English translation — every `Text`
+is a `LocalizedStringKey`, so that one is a String Catalog away. The File tab lists what either app
+downloaded, with open, reveal and trash; renaming and moving are left to the Finder.
 
 Learnt while porting, and true of the Python app as well:
 - URLSession with Safari's user agent gets past vixcloud and AnimeUnity without cloudscraper.

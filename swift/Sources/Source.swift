@@ -86,6 +86,12 @@ struct Episode: Identifiable, Hashable, Codable {
     var name = ""
 }
 
+/// A row of the start page: a list the source itself curates.
+struct Shelf: Identifiable {
+    let id: String
+    let titles: [Title]
+}
+
 enum StreamingCommunity {
     static func url(_ domain: String, _ path: String, _ query: [String: String] = [:]) throws -> URL {
         var components = URLComponents(string: "https://\(domain)\(path)")
@@ -109,16 +115,28 @@ enum StreamingCommunity {
 
     static func search(_ query: String, domain: String) async throws -> [Title] {
         let titles = try await props(url(domain, "/it/search", ["q": query]))["titles"] as? [JSON] ?? []
-        return titles.compactMap { t in
-            guard let id = string(t["id"]), let name = string(t["name"]) else { return nil }
-            let poster = (t["images"] as? [JSON])?.first { string($0["type"]) == "poster" }.flatMap { string($0["filename"]) }
-            return Title(id: id, slug: string(t["slug"]) ?? "", name: name,
-                         kind: string(t["type"]) == "movie" ? .movie : .tv,
-                         year: (string(t["release_date"]) ?? string(t["last_air_date"])).map { String($0.prefix(4)) },
-                         score: string(t["score"]).flatMap(Double.init).map { String(format: "%.1f", $0) },
-                         poster: poster.flatMap { URL(string: "https://cdn.\(domain)/images/\($0)") },
-                         seasons: t["seasons_count"] as? Int ?? 0)
+        return titles.compactMap { title($0, domain: domain) }
+    }
+
+    /// The home page's own sliders: what is trending, what was added lately, today's top ten.
+    static func home(domain: String) async throws -> [Shelf] {
+        let sliders = try await props(url(domain, "/it"))["sliders"] as? [JSON] ?? []
+        return sliders.compactMap { slider in
+            string(slider["label"]).map { label in
+                Shelf(id: label, titles: (slider["titles"] as? [JSON] ?? []).compactMap { title($0, domain: domain) })
+            }
         }
+    }
+
+    static func title(_ t: JSON, domain: String) -> Title? {
+        guard let id = string(t["id"]), let name = string(t["name"]) else { return nil }
+        let poster = (t["images"] as? [JSON])?.first { string($0["type"]) == "poster" }.flatMap { string($0["filename"]) }
+        return Title(id: id, slug: string(t["slug"]) ?? "", name: name,
+                     kind: string(t["type"]) == "movie" ? .movie : .tv,
+                     year: (string(t["release_date"]) ?? string(t["last_air_date"])).map { String($0.prefix(4)) },
+                     score: string(t["score"]).flatMap(Double.init).map { String(format: "%.1f", $0) },
+                     poster: poster.flatMap { URL(string: "https://cdn.\(domain)/images/\($0)") },
+                     seasons: t["seasons_count"] as? Int ?? 0)
     }
 
     struct Details { var plot: String?; var genres: [String]; var trailer: URL?; var seasons: Int }
@@ -166,18 +184,36 @@ enum AnimeUnity {
                                              "X-Requested-With": "XMLHttpRequest", "X-CSRF-TOKEN": csrf],
                                    body: try JSONSerialization.data(withJSONObject: payload))
         let records = (try JSONSerialization.jsonObject(with: data) as? JSON)?["records"] as? [JSON] ?? []
-        return records.compactMap { r in
-            guard let id = string(r["id"]),
-                  let name = string(r["title_eng"]) ?? string(r["title"]) ?? string(r["name"]) else { return nil }
-            let slug = string(r["slug"]) ?? ""
-            return Title(id: slug.isEmpty ? id : "\(id)-\(slug)", slug: slug,
-                         name: name.trimmingCharacters(in: .whitespaces), kind: .anime,
-                         year: string(r["date"]).map { String($0.prefix(4)) },
-                         score: string(r["score"]).flatMap(Double.init).map { String(format: "%.1f", $0) },
-                         poster: string(r["imageurl"]).flatMap { URL(string: $0) },
-                         episodes: r["episodes_count"] as? Int ?? 0, animeType: string(r["type"]),
-                         plot: string(r["plot"])?.htmlUnescaped, genres: (r["genres"] as? [JSON] ?? []).compactMap { string($0["name"]) })
+        return records.compactMap(title)
+    }
+
+    /// The home page's own lists: the latest episodes, as the animes they belong to, and the featured
+    /// carousel. Both ride in element attributes as escaped JSON.
+    static func home() async throws -> [Shelf] {
+        let html = String(decoding: try await fetch(URL(string: "https://\(host)/")!), as: UTF8.self)
+        func decoded(_ match: Regex<(Substring, Substring)>.Match?) -> Any? {
+            match.flatMap { try? JSONSerialization.jsonObject(with: Data(String($0.1).htmlUnescaped.utf8)) }
         }
+        var seen = Set<String>()
+        let latest = ((decoded(html.firstMatch(of: #/items-json="([^"]*)"/#)) as? JSON)?["data"] as? [JSON] ?? [])
+            .compactMap { ($0["anime"] as? JSON).flatMap(title) }
+            .filter { seen.insert($0.id).inserted }
+        let featured = (decoded(html.firstMatch(of: #/<the-carousel[^>]*animes="([^"]*)"/#)) as? [JSON] ?? []).compactMap(title)
+        return [Shelf(id: "Ultimi episodi", titles: latest), Shelf(id: "In evidenza", titles: featured)]
+            .filter { !$0.titles.isEmpty }
+    }
+
+    static func title(_ r: JSON) -> Title? {
+        guard let id = string(r["id"]),
+              let name = string(r["title_eng"]) ?? string(r["title"]) ?? string(r["name"]) else { return nil }
+        let slug = string(r["slug"]) ?? ""
+        return Title(id: slug.isEmpty ? id : "\(id)-\(slug)", slug: slug,
+                     name: name.trimmingCharacters(in: .whitespaces), kind: .anime,
+                     year: string(r["date"]).map { String($0.prefix(4)) },
+                     score: string(r["score"]).flatMap(Double.init).map { String(format: "%.1f", $0) },
+                     poster: string(r["imageurl"]).flatMap { URL(string: $0) },
+                     episodes: r["episodes_count"] as? Int ?? 0, animeType: string(r["type"]),
+                     plot: string(r["plot"])?.htmlUnescaped, genres: (r["genres"] as? [JSON] ?? []).compactMap { string($0["name"]) })
     }
 
     static func episodes(_ title: Title) async throws -> [Episode] {

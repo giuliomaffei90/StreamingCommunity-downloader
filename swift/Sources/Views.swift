@@ -2,21 +2,65 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    enum Page { case search, downloads }
-    @State private var page: Page? = .search
+    enum Page: Hashable { case search, downloads, files, settings }
+    @State private var page = Page.search
     @Environment(Downloads.self) private var downloads
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $page) {
-                Label("Cerca", systemImage: "magnifyingglass").tag(Page.search)
-                Label("Download", systemImage: "arrow.down.circle").tag(Page.downloads).badge(downloads.activeCount)
-            }
-            .navigationSplitViewColumnWidth(180)
-        } detail: {
-            if page == .downloads { DownloadsView() } else { SearchView() }
+        // The system's own sidebar of tabs, which also keeps each tab's state while another is shown:
+        // a search is still there after a look at the downloads.
+        TabView(selection: $page) {
+            Tab("Cerca", systemImage: "magnifyingglass", value: .search) { NavigationStack { SearchView() } }
+            Tab("Download", systemImage: "arrow.down.circle", value: .downloads) { NavigationStack { DownloadsView() } }
+                .badge(downloads.activeCount)
+            Tab("File", systemImage: "film.stack", value: .files) { NavigationStack { FilesView() } }
+            Tab("Impostazioni", systemImage: "gearshape", value: .settings) { NavigationStack { SettingsView() } }
         }
+        .tabViewStyle(.sidebarAdaptable)
         .frame(minWidth: 900, minHeight: 600)
+    }
+}
+
+/// The coloured tag the Python panel put on every card, so a grid reads at a glance.
+struct Badge: View {
+    let text: LocalizedStringKey
+    let color: Color
+
+    init(_ text: LocalizedStringKey, _ color: Color) {
+        self.text = text
+        self.color = color
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(color)
+            .background(color.opacity(0.18), in: Capsule())
+    }
+}
+
+extension Title {
+    /// The source's own classification — AnimeUnity's Movie, TV, OVA, ONA, Special, or
+    /// StreamingCommunity's movie and tv — one colour each.
+    var badge: Badge {
+        switch animeType ?? kind.rawValue {
+        case "Movie", "movie": Badge("Film", .blue)
+        case "TV", "tv": Badge("TV", .green)
+        case "OVA": Badge("OVA", .purple)
+        case "ONA": Badge("ONA", .cyan)
+        case "Special": Badge("Speciale", .orange)
+        case let other: Badge(LocalizedStringKey(other), .gray)
+        }
+    }
+
+    var kindBadge: Badge {
+        switch kind {
+        case .movie: Badge("Film", .blue)
+        case .tv: Badge("TV", .green)
+        case .anime: Badge("Anime", .purple)
+        }
     }
 }
 
@@ -31,9 +75,16 @@ struct SearchView: View {
     @State private var dubbed = false
     @State private var results: [Title] = []
     @State private var searchedFor: String?
+    @State private var lastSearch: [String] = []
     @State private var searching = false
     @State private var error: String?
+    @State private var shelves: [Shelf] = []
+    @State private var shelvesFor = ""
+    @State private var shelvesError: String?
     @State private var selected: Title?
+
+    private var searchKey: [String] { [query, source.rawValue, kind, "\(dubbed)", domain] }
+    private var showsShelves: Bool { query.trimmingCharacters(in: .whitespaces).count < 3 }
 
     private var kinds: [(String, LocalizedStringKey)] {
         source == .animeUnity
@@ -43,30 +94,34 @@ struct SearchView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
-                ForEach(results) { title in
-                    Button { selected = title } label: { Card(title: title) }.buttonStyle(.plain)
+            if showsShelves {
+                // Nothing typed yet: what the source itself puts on its front page.
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    ForEach(shelves) { shelf in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(shelf.id).font(.title2.bold())
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(alignment: .top, spacing: 16) {
+                                    ForEach(shelf.titles) { title in
+                                        Button { selected = title } label: { Card(title: title).frame(width: 150) }
+                                            .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-            .padding()
-        }
-        .overlay {
-            if searching {
-                ProgressView()
-            } else if let error {
-                ContentUnavailableView("Ricerca non riuscita", systemImage: "exclamationmark.triangle", description: Text(error))
-            } else if source == .streamingCommunity && configuredDomain.isEmpty {
-                ContentUnavailableView {
-                    Label("Nessun dominio", systemImage: "globe")
-                } description: {
-                    Text("Imposta il dominio di StreamingCommunity nelle Impostazioni: cambia ogni poche settimane.")
-                } actions: {
-                    SettingsLink { Text("Apri le Impostazioni") }
+                .padding()
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
+                    ForEach(results) { title in
+                        Button { selected = title } label: { Card(title: title) }.buttonStyle(.plain)
+                    }
                 }
-            } else if results.isEmpty, let searchedFor {
-                ContentUnavailableView.search(text: searchedFor)
+                .padding()
             }
         }
+        .overlay { overlay }
         .searchable(text: $query, placement: .toolbar, prompt: source == .animeUnity ? "Cerca anime…" : "Film, serie TV…")
         .toolbar {
             Picker("Sorgente", selection: $source) {
@@ -79,14 +134,38 @@ struct SearchView: View {
         }
         .onChange(of: source) { kind = "" }
         // Every keystroke restarts this, cancelling the previous run mid-sleep: that is the whole debounce.
-        .task(id: [query, source.rawValue, kind, "\(dubbed)", domain]) { await search() }
+        .task(id: searchKey) { await search() }
+        .task(id: source.rawValue + domain) { await loadShelves() }
         .sheet(item: $selected) { TitleSheet(title: $0) }
         .navigationTitle("Cerca")
     }
 
+    @ViewBuilder private var overlay: some View {
+        if searching {
+            ProgressView()
+        } else if source == .streamingCommunity && configuredDomain.isEmpty {
+            ContentUnavailableView {
+                Label("Nessun dominio", systemImage: "globe")
+            } description: {
+                Text("Imposta il dominio di StreamingCommunity nelle Impostazioni: cambia ogni poche settimane.")
+            }
+        } else if showsShelves, let shelvesError {
+            ContentUnavailableView("Fonte non raggiungibile", systemImage: "exclamationmark.triangle",
+                                   description: Text(shelvesError))
+        } else if !showsShelves, let error {
+            ContentUnavailableView("Ricerca non riuscita", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else if showsShelves && shelves.isEmpty {
+            ProgressView()
+        } else if !showsShelves, results.isEmpty, let searchedFor {
+            ContentUnavailableView.search(text: searchedFor)
+        }
+    }
+
     private func search() async {
+        let key = searchKey
+        guard key != lastSearch else { return }  // back on this tab: what is on screen already answers it
         let text = query.trimmingCharacters(in: .whitespaces)
-        guard text.count >= 3 else { results = []; searchedFor = nil; error = nil; return }
+        guard text.count >= 3 else { results = []; searchedFor = nil; error = nil; lastSearch = key; return }
         do {
             try await Task.sleep(for: .milliseconds(400))
             searching = true
@@ -99,18 +178,22 @@ struct SearchView: View {
             }
             searchedFor = text
             error = nil
+            lastSearch = key
         } catch {
             if !Task.isCancelled { self.error = error.localizedDescription; results = [] }
         }
     }
-}
 
-extension Title {
-    var typeLabel: LocalizedStringKey {
-        switch kind {
-        case .movie: return "Film"
-        case .tv: return "Serie TV"
-        case .anime: return animeType == "Movie" ? "Film" : LocalizedStringKey(animeType ?? "Anime")
+    private func loadShelves() async {
+        let key = source.rawValue + configuredDomain
+        guard key != shelvesFor else { return }
+        shelves = []
+        shelvesError = nil
+        do {
+            shelves = try await source == .animeUnity ? AnimeUnity.home() : StreamingCommunity.home(domain: configuredDomain)
+            shelvesFor = key
+        } catch {
+            if !Task.isCancelled { shelvesError = error.localizedDescription }
         }
     }
 }
@@ -122,13 +205,11 @@ struct Card: View {
         VStack(alignment: .leading, spacing: 4) {
             Poster(url: title.poster)
             Text(title.name).font(.headline).lineLimit(2)
-            HStack(spacing: 6) {
-                Text(title.typeLabel)
-                if let score = title.score { Text("★ \(score)") }
-                if let year = title.year { Text(year) }
+            HStack(spacing: 4) {
+                title.badge
+                if let score = title.score { Badge("★ \(score)", .yellow) }
+                if let year = title.year { Text(year).font(.caption).foregroundStyle(.secondary) }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
     }
@@ -175,7 +256,10 @@ struct TitleSheet: View {
                 Poster(url: title.poster).frame(width: 150)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(title.name).font(.title2.bold())
-                    Text(meta).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        title.badge
+                        Text(meta).foregroundStyle(.secondary)
+                    }
                     let genres = details?.genres ?? title.genres
                     if !genres.isEmpty { Text(genres.joined(separator: " · ")).font(.callout).foregroundStyle(.secondary) }
                     if let plot = details?.plot ?? title.plot {
@@ -363,7 +447,10 @@ struct JobRow: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(job.request.label).fontWeight(.medium).lineLimit(1)
+                HStack(spacing: 6) {
+                    job.request.title.kindBadge
+                    Text(job.request.label).fontWeight(.medium).lineLimit(1)
+                }
                 ProgressView(value: job.status == .done ? 1 : job.fraction)
                     .tint(job.status == .failed ? .red : job.status == .done ? .green : .accentColor)
                 Text(caption).font(.caption).foregroundStyle(job.status == .failed ? .red : .secondary).lineLimit(2)
@@ -395,6 +482,102 @@ struct JobRow: View {
         case .failed, .cancelled: job.detail
         }
     }
+}
+
+// MARK: Files
+
+/// What this app has downloaded — and the Python app, since both fill one library — as it is on disk
+/// now. Only those, not every video in the folder: the library is often a folder like ~/Downloads that
+/// holds plenty of other things.
+struct FilesView: View {
+    @Environment(Downloads.self) private var downloads
+    @State private var files: [URL] = []
+    @State private var filter = ""
+    @State private var selection = Set<URL>()
+
+    private var groups: [(String, [URL])] {
+        let shown = filter.isEmpty ? files : files.filter { $0.path.localizedCaseInsensitiveContains(filter) }
+        return Dictionary(grouping: shown, by: folderLabel)
+            .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+            .map { ($0.key, $0.value) }
+    }
+
+    var body: some View {
+        List(selection: $selection) {
+            ForEach(groups, id: \.0) { group in
+                Section(group.0) {
+                    ForEach(group.1, id: \.self) { file in
+                        HStack {
+                            Image(systemName: "film").foregroundStyle(.secondary)
+                            Text(file.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Text(size(of: file)).foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                }
+            }
+        }
+        .contextMenu(forSelectionType: URL.self) { urls in
+            Button("Apri") { urls.forEach { NSWorkspace.shared.open($0) } }
+            Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting(Array(urls)) }
+            Divider()
+            Button("Sposta nel Cestino") { trash(urls) }
+        } primaryAction: { urls in
+            urls.forEach { NSWorkspace.shared.open($0) }
+        }
+        .onDeleteCommand { trash(selection) }
+        .overlay {
+            if files.isEmpty {
+                ContentUnavailableView("Nessun file", systemImage: "film.stack",
+                                       description: Text("Quello che scarichi compare qui. Doppio clic per aprirlo."))
+            }
+        }
+        .searchable(text: $filter, placement: .toolbar, prompt: "Filtra i file")
+        .toolbar {
+            Text(freeSpace).foregroundStyle(.secondary)
+            Button("Apri la cartella", systemImage: "folder") { NSWorkspace.shared.open(libraryFolder) }
+        }
+        .task(id: downloads.produced) { reload() }
+        .navigationTitle("File")
+    }
+
+    private var freeSpace: String {
+        let free = (try? libraryFolder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
+        return free.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) + " liberi" } ?? ""
+    }
+
+    private func size(of file: URL) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0),
+                                  countStyle: .file)
+    }
+
+    private func reload() {
+        try? FileManager.default.createDirectory(at: libraryFolder, withIntermediateDirectories: true)
+        let ledger = URL.applicationSupportDirectory.appending(path: "StreamingCommunity Downloader/downloads.json")
+        let python = ((try? JSONSerialization.jsonObject(with: Data(contentsOf: ledger))) as? [JSON] ?? [])
+            .compactMap { string($0["output_path"]) }
+        // The list's finished jobs too, for what was downloaded before `produced` existed.
+        let listed = downloads.jobs.compactMap { $0.output?.path }
+        files = Set(downloads.produced + listed + python).map { URL(filePath: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    /// The Trash, not an unlink: a slip of the Delete key is one "Rimetti al suo posto" away.
+    private func trash(_ urls: Set<URL>) {
+        for url in urls { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+        selection.subtract(urls)
+        reload()
+    }
+}
+
+/// "The Office (2005) · Season 01" for an episode, the folder's own name for a film.
+private func folderLabel(_ file: URL) -> String {
+    let parent = file.deletingLastPathComponent()
+    return parent.lastPathComponent.hasPrefix("Season ")
+        ? "\(parent.deletingLastPathComponent().lastPathComponent) · \(parent.lastPathComponent)"
+        : parent.lastPathComponent
 }
 
 // MARK: Settings
@@ -440,7 +623,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 620)
+        .navigationTitle("Impostazioni")
     }
 
     private func chooseFolder() {

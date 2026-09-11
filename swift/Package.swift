@@ -5,7 +5,7 @@ import PackageDescription
 // this file as a project.
 let package = Package(
     name: "StreamingCommunityDownloader",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.0")],
     targets: [
         .executableTarget(name: "StreamingCommunityDownloader", path: "Sources"),
         .testTarget(name: "Tests", dependencies: ["StreamingCommunityDownloader"], path: "Tests"),

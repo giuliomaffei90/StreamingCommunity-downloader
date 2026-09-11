@@ -97,6 +97,8 @@ struct Job: Identifiable, Codable {
     /// Oldest first, the order they run in; the list shows them newest first.
     private(set) var jobs: [Job] = []
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
+    /// Every file written, kept apart from the list: clearing the list must not lose them from File.
+    private(set) var produced = UserDefaults.standard.stringArray(forKey: "produced") ?? []
     private static let ledger = URL.applicationSupportDirectory
         .appending(path: "StreamingCommunity Downloader/swift-downloads.json")
 
@@ -188,6 +190,8 @@ struct Job: Identifiable, Codable {
                 }
             }
             update(id) { $0.status = .done; $0.output = file; $0.phase = ""; $0.fraction = 1; $0.detail = "" }
+            produced.append(file.path)
+            UserDefaults.standard.set(produced, forKey: "produced")
         } catch {
             let cancelled = Task.isCancelled
             update(id) {
