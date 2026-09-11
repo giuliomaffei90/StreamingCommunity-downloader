@@ -8,7 +8,7 @@
     {
       "appearance" : "dark",
       "value" : {
-        "automatic-gradient" : "extended-srgb:0.17000,0.04000,0.04000,1.00000"
+        "automatic-gradient" : "display-p3:0.66937,0.19746,0.15396,1.00000"
       }
     }
   ],
@@ -25,7 +25,7 @@
             {
               "appearance" : "dark",
               "value" : {
-                "automatic-gradient" : "extended-srgb:0.96000,0.26000,0.21000,1.00000"
+                "automatic-gradient" : "extended-gray:1.00000,1.00000"
               }
             }
           ],
@@ -43,7 +43,7 @@
             {
               "appearance" : "dark",
               "value" : {
-                "automatic-gradient" : "extended-srgb:0.96000,0.26000,0.21000,1.00000"
+                "automatic-gradient" : "extended-gray:1.00000,1.00000"
               }
             }
           ],

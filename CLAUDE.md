@@ -165,7 +165,7 @@ temporary directory, under `StreamingCommunity/<job id>`, and are removed after 
   do not redesign it in passing. In `icon/AppIcon.icon` the mark is two glass layers, the arrow and
   the tray, drawn as filled outlines of round-capped strokes: the icon renderer ignores
   `fill="none"` and fills every path, so a stroked SVG comes out as a solid triangle and a bowl.
-  The dark appearance swaps to a near-black plate with the mark in red. Nothing is stamped on the
+  The dark appearance keeps the identity too: a deeper red plate, the mark still white. Nothing is stamped on the
   bundle as a custom icon, as the Python builds did to get round a colourless `.icns`: a custom
   icon would cover the compiled one with a flat picture.
 - **Notifications need the bundle.** `Notifier` posts through `UNUserNotificationCenter` and is
