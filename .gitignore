@@ -5,9 +5,6 @@
 /.build/
 /.swiftpm/
 
-# Intermediate, rebuilt by icon/make_icon.py
-icon/AppIcon.iconset/
-
 # Left on this machine by the Python app this one replaced: its environment, its PyInstaller
 # output, the folder its downloads used to land in (which may still hold files) and its leftover
 # database. Ignored rather than deleted: they are on disk here, not in the repository.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- The tray the arrow lands in: a rounded rectangle with its top cut away and the two open ends
+       capped round, as one filled outline. -->
+  <path fill="#ffffff" d="M230.06 651.40 L230.06 704.65 A114.35 114.35 0 0 0 344.41 819.00 L679.59 819.00
+    A114.35 114.35 0 0 0 793.94 704.65 L793.94 651.40 A32.9 32.9 0 0 0 728.14 651.40 L728.14 704.65
+    A48.55 48.55 0 0 1 679.59 753.20 L344.41 753.20 A48.55 48.55 0 0 1 295.86 704.65 L295.86 651.40
+    A32.9 32.9 0 0 0 230.06 651.40 Z"/>
+</svg>

@@ -91,8 +91,9 @@ Six files in `Sources/`:
   title sheet, the Download and File tabs, the settings.
 - `App.swift` — the scenes and the app delegate.
 
-`Resources/` holds the translations, `scripts/build-release.sh` the build, `icon/` the icon and
-`icon/make_icon.py`, which regenerates it (Python and Pillow, for that one file only).
+`Resources/` holds the translations, `scripts/build-release.sh` the build, and `icon/AppIcon.icon`
+the icon: an Icon Composer document, opened and changed there, which the build compiles with
+`actool` into every appearance macOS 26 draws, plus an `.icns` for macOS 15.
 
 ### Persistence
 
@@ -160,6 +161,13 @@ temporary directory, under `StreamingCommunity/<job id>`, and are removed after 
   line, because a missing one only shows as Italian on an English screen. Titles, plots and episode
   names are never translated: they are what the source sent. The language setting writes the app's
   own `AppleLanguages` and applies on relaunch.
+- **The icon is a red plate with a white download mark. Keep it that way.** It is the app's identity;
+  do not redesign it in passing. In `icon/AppIcon.icon` the mark is two glass layers, the arrow and
+  the tray, drawn as filled outlines of round-capped strokes: the icon renderer ignores
+  `fill="none"` and fills every path, so a stroked SVG comes out as a solid triangle and a bowl.
+  The dark appearance swaps to a near-black plate with the mark in red. Nothing is stamped on the
+  bundle as a custom icon, as the Python builds did to get round a colourless `.icns`: a custom
+  icon would cover the compiled one with a flat picture.
 - **Notifications need the bundle.** `Notifier` posts through `UNUserNotificationCenter` and is
   silent under `swift run`; a click shows the file in the Finder. osascript was tried first and
   posted as Script Editor, whose icon and whose click came with it.

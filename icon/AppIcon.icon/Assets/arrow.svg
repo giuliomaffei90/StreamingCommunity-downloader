@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- The stem and the chevron of the download mark, on the full icon canvas: the geometry the icon
+       has always had, centred by its ink and 60% of the canvas tall. Filled outlines of round-capped
+       strokes, not strokes: the icon renderer ignores fill="none" and fills every path. -->
+  <g fill="#ffffff">
+    <path d="M479.10 237.90 A32.9 32.9 0 0 1 544.90 237.90 L544.90 588.75 A32.9 32.9 0 0 1 479.10 588.75 Z"/>
+    <path d="M325.84 483.57 L488.74 646.47 A32.9 32.9 0 0 0 535.26 599.95 L372.36 437.05 A32.9 32.9 0 0 0 325.84 483.57 Z"/>
+    <path d="M535.26 646.47 L698.16 483.57 A32.9 32.9 0 0 0 651.64 437.05 L488.74 599.95 A32.9 32.9 0 0 0 535.26 646.47 Z"/>
+  </g>
+</svg>

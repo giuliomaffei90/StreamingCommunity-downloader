@@ -12,8 +12,8 @@ Run the script. It does everything and stops at the first thing that is wrong:
 ```
 
 It runs the tests, builds the release binary, lists any interface string that has no English line,
-closes any running instance of the app, assembles the bundle in `~/Downloads`, stamps the icon on
-it and opens it.
+closes any running instance of the app, assembles the bundle in `~/Downloads` with its icon
+compiled by `actool`, and opens it.
 
 Do not filter the script's output down to the last few lines: the "Chiusura istanze" line and any
 "senza inglese" line are worth reporting, and get lost that way.
@@ -39,6 +39,9 @@ script.
 
 ## The icon
 
-`icon/AppIcon.icns` is committed and the build just reads it. It is regenerated only when the icon
-itself changes, with `python icon/make_icon.py` — Python and Pillow as a development tool for that
-one file; neither the app nor its build needs them.
+`icon/AppIcon.icon` is an Icon Composer document, and the build compiles it with `actool` each time.
+To change the icon, open it there — `open -a "Icon Composer" icon/AppIcon.icon` — and save.
+
+If the Dock or the Finder still shows the previous icon after a build, it is their cache: the build
+re-registers the bundle, and logging out and back in clears the rest. Do not restart the Dock on
+the user's behalf.

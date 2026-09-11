@@ -59,8 +59,12 @@ OLD="$HOME/Downloads/StreamingCommunity Swift.app"
 if [[ -x "$OLD/Contents/MacOS/$EXE" ]]; then rm -rf "$OLD"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/"
-cp "$REPO/icon/AppIcon.icns" "$APP/Contents/Resources/"
 cp -R "$REPO/Resources/"*.lproj "$APP/Contents/Resources/"  # the interface's languages
+# The icon is an Icon Composer document. actool turns it into Assets.car — each appearance macOS 26
+# draws, the glass rendered by the system — plus an .icns for macOS 15, which predates the format.
+xcrun actool "$REPO/icon/AppIcon.icon" --compile "$APP/Contents/Resources" --app-icon AppIcon \
+  --include-all-app-icons --platform macosx --target-device mac --minimum-deployment-target 15.0 \
+  --output-partial-info-plist "$(mktemp)" >/dev/null
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -71,18 +75,14 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleExecutable</key><string>$EXE</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
 </dict></plist>
 EOF
 codesign --force --deep -s - "$APP"
-# The .icns alone comes out colourless on this system — the red plate turns black, for reasons
-# chased a long way and never found. A custom icon resource, which is what the Finder's Get Info
-# paste writes, is honoured without any of that. The paths travel as arguments, not as script.
-osascript -l JavaScript -e 'function run(argv) {
-  ObjC.import("AppKit");
-  const image = $.NSImage.alloc.initWithContentsOfFile(argv[0]);
-  return $.NSWorkspace.sharedWorkspace.setIconForFileOptions(image, argv[1], 0);
-}' "$REPO/icon/icon.png" "$APP" >/dev/null || echo "   (icona non applicata)"
+# No custom icon stamped on the bundle any more, as the Python builds needed: it would cover the
+# compiled one with a flat picture. Registering again tells the Finder and the Dock to read it anew.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
 
 SIZE="$(du -sh "$APP" | cut -f1)"
 echo
