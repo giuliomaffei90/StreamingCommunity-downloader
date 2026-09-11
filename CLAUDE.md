@@ -304,9 +304,14 @@ It shares only the library layout with the Python app: `destination()` reproduce
 templates exactly, and a test holds it there, so both apps fill one library. Settings live in
 UserDefaults, the download list in `swift-downloads.json` in the same Application Support folder.
 
-Not ported, on purpose: naming templates, domain recovery and the English translation — every `Text`
-is a `LocalizedStringKey`, so that one is a String Catalog away. The File tab lists what either app
+Not ported, on purpose: naming templates and domain recovery. The File tab lists what either app
 downloaded, with open, reveal and trash; renaming and moving are left to the Finder.
+
+Its English is `swift/Resources/en.lproj/Localizable.strings`, keyed by the Italian strings as
+i18n.js is. build-app.sh copies it into the bundle, so `swift run` speaks Italian only. Anything the
+interface shows goes through `Text`/`LocalizedStringKey` or `String(localized:)` — a ternary of two
+literals silently picks the verbatim overload, so wrap each side in `Text` — and gets its line in
+that file. The language setting writes the app's own `AppleLanguages` and applies on relaunch.
 
 Learnt while porting, and true of the Python app as well:
 - URLSession with Safari's user agent gets past vixcloud and AnimeUnity without cloudscraper.

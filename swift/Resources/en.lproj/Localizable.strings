@@ -1,0 +1,137 @@
+/* English for the interface. Keys are the Italian strings themselves, as in app/static/i18n.js: a
+   string nobody translated falls back to what the code says. build-app.sh lists any key missing here. */
+
+/* Navigation, search */
+"Cerca" = "Search";
+"Download" = "Downloads";
+"File" = "Files";
+"Impostazioni" = "Settings";
+"StreamingCommunity" = "StreamingCommunity";
+"StreamingCommunity Downloader" = "StreamingCommunity Downloader";
+"AnimeUnity" = "AnimeUnity";
+"Sorgente" = "Source";
+"Tipo" = "Kind";
+"Film, serie TV…" = "Movies, TV series…";
+"Cerca anime…" = "Search anime…";
+"Film e serie TV" = "Movies and TV series";
+"Solo film" = "Movies only";
+"Solo serie TV" = "TV series only";
+"Tutti i tipi" = "All kinds";
+"Speciali" = "Specials";
+"Solo doppiati" = "Dubbed only";
+"Ricerca non riuscita" = "Search failed";
+"Fonte non raggiungibile" = "Source unreachable";
+"Nessun dominio" = "No domain";
+"Imposta il dominio di StreamingCommunity nelle Impostazioni: cambia ogni poche settimane." = "Set the StreamingCommunity domain in Settings: it changes every few weeks.";
+"Il dominio non risponde: cambialo nelle Impostazioni" = "The domain is not answering: change it in Settings";
+"Niente di questo tipo in prima pagina" = "Nothing of this kind on the front page";
+"Cerca per nome, o allarga il filtro." = "Search by name, or widen the filter.";
+
+/* The start page: the sources' own labels */
+"I titoli del momento" = "Trending now";
+"Aggiunti di recente" = "Recently added";
+"Top 10 titoli oggi" = "Today's top 10";
+"Ultimi episodi" = "Latest episodes";
+"In evidenza" = "Featured";
+
+/* Kinds */
+"Film" = "Movie";
+"TV" = "TV";
+"OVA" = "OVA";
+"ONA" = "ONA";
+"Speciale" = "Special";
+"Anime" = "Anime";
+"Serie TV" = "TV series";
+"★ %@" = "★ %@";
+
+/* One title */
+"1 stagione" = "1 season";
+"%lld stagioni" = "%lld seasons";
+"1 episodio" = "1 episode";
+"%lld episodi" = "%lld episodes";
+"Guarda il trailer" = "Watch the trailer";
+"Audio:" = "Audio:";
+"Sottotitoli:" = "Subtitles:";
+"%@ (forzati)" = "%@ (forced)";
+"Stagione" = "Season";
+"Stagione %lld" = "Season %lld";
+"Tutta la serie" = "Whole series";
+"Tutta la stagione" = "Whole season";
+"Scarica" = "Download";
+"Scarica tutti" = "Download all";
+"Chiudi" = "Close";
+"Aggiungi alla coda" = "Add to queue";
+"Aggiungere alla coda i %lld episodi della stagione %lld?" = "Queue all %lld episodes of season %lld?";
+"Aggiungere alla coda tutte le %lld stagioni?" = "Queue all %lld seasons?";
+"Aggiungere alla coda tutti i %lld episodi?" = "Queue all %lld episodes?";
+
+/* Downloads */
+"Nessun download" = "No downloads";
+"Quello che scarichi compare qui." = "What you download shows up here.";
+"Apri la cartella" = "Open the folder";
+"Togli i terminati" = "Clear finished";
+"Togli dalla lista" = "Remove from the list";
+"Interrompi" = "Stop";
+"Riprova" = "Retry";
+"Mostra nel Finder" = "Show in Finder";
+"In coda" = "Queued";
+"Completato" = "Done";
+"Annullato" = "Cancelled";
+"Interrotto dalla chiusura dell'app" = "Interrupted when the app quit";
+"Avvio" = "Starting";
+"Risoluzione" = "Resolving";
+"Video" = "Video";
+"Unione" = "Merging";
+"In attesa della ricodifica" = "Waiting to re-encode";
+"Ricodifica" = "Re-encoding";
+
+/* Files */
+"Nessun file" = "No files";
+"Quello che scarichi compare qui. Doppio clic per aprirlo." = "What you download shows up here. Double-click to open it.";
+"Filtra i file" = "Filter files";
+"Apri" = "Open";
+"Sposta nel Cestino" = "Move to Trash";
+"%@ liberi" = "%@ free";
+
+/* Settings */
+"Dominio" = "Domain";
+"streamingcommunity.esempio" = "streamingcommunity.example";
+"Cambia ogni poche settimane: incolla qui quello nuovo, anche l'indirizzo copiato dal browser." = "It changes every few weeks: paste the new one here, even the address copied from the browser.";
+"Cartella" = "Folder";
+"Scegli…" = "Choose…";
+"Download contemporanei: %lld" = "Concurrent downloads: %lld";
+"Segmenti in parallelo: %lld" = "Parallel segments: %lld";
+"Notifica a download finito" = "Notify when a download finishes";
+"Ricodifica in HEVC dopo il download" = "Re-encode to HEVC after downloading";
+"Ricodifiche contemporanee: %lld" = "Concurrent re-encodes: %lld";
+"Preset «Plex» di HandBrake: circa un terzo di spazio in meno, per un terzo della durata in CPU." = "HandBrake's “Plex” preset: about a third less space, for about a third of the running time in CPU.";
+"Lingua" = "Language";
+"Lingua dell'interfaccia" = "Interface language";
+"Cambia al prossimo avvio." = "Takes effect on the next launch.";
+"Cambia al prossimo avvio. Con dei download in corso, riavvia quando finiscono." = "Takes effect on the next launch. With downloads running, relaunch once they finish.";
+"Riavvia ora" = "Relaunch now";
+
+/* Notifications */
+"Download completato" = "Download finished";
+"Download fallito" = "Download failed";
+"Download completati" = "Downloads finished";
+"Download completati con errori" = "Downloads finished with errors";
+"«%@» è pronto in libreria." = "“%@” is ready in the library.";
+"«%@»: %lld episodi su %lld scaricati." = "“%@”: %lld of %lld episodes downloaded.";
+"«%@»: %lld episodi su %lld scaricati, %lld falliti." = "“%@”: %lld of %lld episodes downloaded, %lld failed.";
+
+/* Errors */
+"HTTP %lld da %@" = "HTTP %lld from %@";
+"Imposta il dominio di StreamingCommunity nelle Impostazioni" = "Set the StreamingCommunity domain in Settings";
+"Risposta inattesa da %@: il dominio è ancora quello giusto?" = "Unexpected answer from %@: is the domain still the right one?";
+"Risposta inattesa da AnimeUnity" = "Unexpected answer from AnimeUnity";
+"Video non disponibile sulla fonte" = "Video not available on the source";
+"Video non disponibile: la pagina del player non ha una playlist" = "Video not available: the player page has no playlist";
+"Playlist senza segmenti" = "Playlist with no segments";
+"Playlist cifrata senza IV" = "Encrypted playlist without an IV";
+"Nessun segmento scaricato per 30 secondi: la fonte non risponde, riprova più tardi." = "No segment downloaded for 30 seconds: the source is not answering, try again later.";
+"Download interrotto: la fonte rifiuta i segmenti. Riprova più tardi." = "Download stopped: the source is refusing the segments. Try again later.";
+"Download incompleto: %lld segmenti su %lld non scaricati. Il file non è stato creato per non salvarlo corrotto." = "Incomplete download: %lld of %lld segments missing. The file was not written, rather than saved corrupt.";
+"ffmpeg non trovato: installalo con «brew install ffmpeg»" = "ffmpeg not found: install it with “brew install ffmpeg”";
+"ffmpeg: %@" = "ffmpeg: %@";
+"Impossibile sostituire %@" = "Could not replace %@";

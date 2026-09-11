@@ -57,7 +57,7 @@ final class Tests: XCTestCase {
         XCTAssertEqual("{&quot;a&quot;:&quot;x &amp;quot; y&quot;}".htmlUnescaped, "{\"a\":\"x &quot; y\"}")
         // The source stores its plots escaped once more, inside a page that escapes them again.
         XCTAssertEqual("l&amp;#39;hacker".htmlUnescaped.htmlUnescaped, "l'hacker")
-        XCTAssertEqual(languageName("forced-ita", in: Locale(identifier: "en")), "Italian (Forced)")
+        XCTAssertEqual(languageName("forced-ita", in: Locale(identifier: "it")), "Italiano (forzati)")
         XCTAssertEqual(languageName("eng", in: Locale(identifier: "it")), "Inglese")
     }
 

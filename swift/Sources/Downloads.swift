@@ -106,7 +106,7 @@ struct Job: Identifiable, Codable {
         jobs = (try? JSONDecoder().decode([Job].self, from: Data(contentsOf: Self.ledger))) ?? []
         for index in jobs.indices where jobs[index].status.isActive {
             jobs[index].status = .failed
-            jobs[index].detail = "Interrotto dalla chiusura dell'app"
+            jobs[index].detail = String(localized: "Interrotto dalla chiusura dell'app")
         }
     }
 
@@ -129,7 +129,7 @@ struct Job: Identifiable, Codable {
 
     func cancel(_ id: UUID) {
         tasks[id]?.cancel()
-        update(id) { $0.status = .cancelled; $0.detail = "Annullato" }
+        update(id) { $0.status = .cancelled; $0.detail = String(localized: "Annullato") }
         changed()
     }
 
@@ -196,7 +196,7 @@ struct Job: Identifiable, Codable {
             let cancelled = Task.isCancelled
             update(id) {
                 $0.status = cancelled ? .cancelled : .failed
-                $0.detail = cancelled ? "Annullato" : error.localizedDescription
+                $0.detail = cancelled ? String(localized: "Annullato") : error.localizedDescription
             }
         }
         tasks[id] = nil
@@ -227,8 +227,8 @@ struct Job: Identifiable, Codable {
         guard let job = jobs.first(where: { $0.id == id }) else { return }
         guard let batch = job.batch else {
             switch job.status {
-            case .done: notify("Download completato", "«\(job.request.label)» è pronto in libreria.")
-            case .failed: notify("Download fallito", "«\(job.request.label)»: \(job.detail)")
+            case .done: notify(String(localized: "Download completato"), String(localized: "«\(job.request.label)» è pronto in libreria."))
+            case .failed: notify(String(localized: "Download fallito"), "«\(job.request.label)»: \(job.detail)")
             default: break  // cancelling is a decision, not news
             }
             return
@@ -236,8 +236,10 @@ struct Job: Identifiable, Codable {
         let group = jobs.filter { $0.batch == batch }
         guard !group.contains(where: \.status.isActive) else { return }
         let done = group.filter { $0.status == .done }.count, failed = group.filter { $0.status == .failed }.count
-        notify(failed == 0 ? "Download completati" : "Download completati con errori",
-               "«\(job.request.title.name)»: \(done) episodi su \(group.count) scaricati" + (failed == 0 ? "." : ", \(failed) falliti."))
+        let name = job.request.title.name, total = group.count
+        notify(failed == 0 ? String(localized: "Download completati") : String(localized: "Download completati con errori"),
+               failed == 0 ? String(localized: "«\(name)»: \(done) episodi su \(total) scaricati.")
+                           : String(localized: "«\(name)»: \(done) episodi su \(total) scaricati, \(failed) falliti."))
     }
 }
 

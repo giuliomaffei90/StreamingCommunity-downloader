@@ -238,8 +238,7 @@ func downloadRendition(_ playlist: Playlist, key: Data, referer: String, folder:
     // The filesystem is the judge, not the bookkeeping above.
     let missing = (0..<count).filter { !FileManager.default.fileExists(atPath: folder.appending(path: "\($0).ts").path) }
     guard missing.isEmpty else {
-        throw Failure("Download incompleto: \(missing.count) segmenti su \(count) non scaricati. "
-                      + "Il file non è stato creato per non salvarlo corrotto.")
+        throw Failure("Download incompleto: \(missing.count) segmenti su \(count) non scaricati. Il file non è stato creato per non salvarlo corrotto.")
     }
 
     // TS is a continuous stream, so the join is plain concatenation and ffmpeg's demuxer carries the
@@ -296,15 +295,15 @@ func ffmpeg(_ arguments: [String], onOutputLine: (@Sendable (String) -> Void)? =
     try Task.checkCancellation()
     guard process.terminationStatus == 0 else {
         let tail = (try? String(contentsOf: log, encoding: .utf8)).map { String($0.suffix(300)) } ?? ""
-        throw Failure("ffmpeg: " + tail.trimmingCharacters(in: .whitespacesAndNewlines))
+        throw Failure("ffmpeg: \(tail.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
 }
 
-/// "ita" → "Italiano"; vixcloud's "forced-ita" → "Italiano (Forced)".
+/// "ita" → "Italiano" in the interface's language; vixcloud's "forced-ita" → "Italiano (forzati)".
 func languageName(_ code: String, in locale: Locale = .current) -> String {
     let forced = code.hasPrefix("forced-"), base = forced ? String(code.dropFirst(7)) : code
     let name = locale.localizedString(forLanguageCode: base).map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? base.uppercased()
-    return forced ? "\(name) (Forced)" : name
+    return forced ? String(localized: "\(name) (forzati)") : name
 }
 
 /// One ffmpeg pass: the video, each chosen audio track and the subtitles into a single file. Audio goes
@@ -321,9 +320,10 @@ func mux(video: URL, audio: [(URL, String)], subtitles: [(URL, String)], into ou
     for (index, (_, language)) in audio.enumerated() { arguments += ["-metadata:s:a:\(index)", "language=\(language)"] }
     for (index, (_, language)) in subtitles.enumerated() {
         // vixcloud writes forced subtitles as "forced-ita": a language plus a disposition, not a code.
-        let forced = language.hasPrefix("forced-")
-        arguments += ["-metadata:s:s:\(index)", "language=\(forced ? String(language.dropFirst(7)) : language)",
-                      "-metadata:s:s:\(index)", "title=\(languageName(language, in: Locale(identifier: "en")))",
+        let forced = language.hasPrefix("forced-"), code = forced ? String(language.dropFirst(7)) : language
+        // A track title is read by any player, so it is English whatever the interface speaks.
+        let title = (Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code.uppercased()) + (forced ? " (Forced)" : "")
+        arguments += ["-metadata:s:s:\(index)", "language=\(code)", "-metadata:s:s:\(index)", "title=\(title)",
                       "-disposition:s:\(index)", forced ? "forced" : "0"]
     }
     arguments += ["-avoid_negative_ts", "make_zero"] + (mkv ? [] : ["-movflags", "+faststart"])

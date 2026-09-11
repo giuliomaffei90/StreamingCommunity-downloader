@@ -5,15 +5,16 @@ import Foundation
 /// the cloudscraper session the Python app needed.
 let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
+/// An error in the interface's language: the message is a localisation key, the Italian text itself.
 struct Failure: LocalizedError {
     let errorDescription: String?
-    init(_ message: String) { errorDescription = message }
+    init(_ message: String.LocalizationValue) { errorDescription = String(localized: message) }
 }
 
 struct HTTPStatus: LocalizedError {
     let code: Int
     let host: String
-    var errorDescription: String? { "HTTP \(code) da \(host)" }
+    var errorDescription: String? { String(localized: "HTTP \(code) da \(host)") }
 }
 
 typealias JSON = [String: Any]

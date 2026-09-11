@@ -18,7 +18,7 @@ struct StreamingCommunityApp: App {
         }
         .defaultSize(width: 1280, height: 860)
         .windowResizability(.contentMinSize)
-        Settings { SettingsView().frame(width: 520, height: 620) }
+        Settings { SettingsView().frame(width: 520, height: 700).environment(downloads) }
     }
 }
 

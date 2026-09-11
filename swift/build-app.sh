@@ -14,8 +14,21 @@ APP="$HOME/Downloads/StreamingCommunity Downloader.app"
 cd "$HERE"
 
 echo "==> Build"
-swift build -c release
+LOC="$(mktemp -d)"
+swift build -c release -Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc "$LOC"
 BIN="$(swift build -c release --show-bin-path)/$EXE"
+
+# A string added without its English line shows up in Italian on an English interface, silently.
+plutil -convert json -o "$LOC/en.json" "$HERE/Resources/en.lproj/Localizable.strings"
+python3 - "$LOC" <<'PY'
+import glob, json, os, sys
+used = {e["key"] for f in glob.glob(os.path.join(sys.argv[1], "*.stringsdata"))
+        for table in json.load(open(f))["tables"].values() for e in table}
+missing = sorted(used - set(json.load(open(os.path.join(sys.argv[1], "en.json")))))
+for key in missing:
+    print(f"   senza inglese: {key}")
+PY
+rm -rf "$LOC"
 
 # Every instance, however it was started — swift run, Xcode, a previous build — because two of them
 # would each write the download list over the other's. Matched on the executable path alone, so
@@ -37,11 +50,13 @@ if [[ -x "$OLD/Contents/MacOS/$EXE" ]]; then rm -rf "$OLD"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/"
 cp "$REPO/icon/AppIcon.icns" "$APP/Contents/Resources/"
+cp -R "$HERE/Resources/"*.lproj "$APP/Contents/Resources/"  # the interface's languages
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>local.streamingcommunity.swift</string>
+  <key>CFBundleDevelopmentRegion</key><string>it</string>
   <key>CFBundleName</key><string>StreamingCommunity Downloader</string>
   <key>CFBundleExecutable</key><string>$EXE</string>
   <key>CFBundlePackageType</key><string>APPL</string>

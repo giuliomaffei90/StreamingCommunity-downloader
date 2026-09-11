@@ -33,7 +33,7 @@ struct SidebarFooter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsLink {
-                Text(configuredDomain.isEmpty ? "Nessun dominio" : configuredDomain)
+                (configuredDomain.isEmpty ? Text("Nessun dominio") : Text(verbatim: configuredDomain))
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)  // the sidebar is narrow, and the whole name is the point
@@ -43,7 +43,7 @@ struct SidebarFooter: View {
                     .background(color.opacity(0.18), in: Capsule())
             }
             .buttonStyle(.plain)
-            .help(answers == false ? "Il dominio non risponde: cambialo nelle Impostazioni" : "")
+            .help(answers == false ? Text("Il dominio non risponde: cambialo nelle Impostazioni") : Text(verbatim: ""))
             SettingsLink {
                 Label("Impostazioni", systemImage: "gearshape")
                     .labelStyle(.titleAndIcon)  // a bottom bar would otherwise reduce it to the icon
@@ -145,7 +145,7 @@ struct SearchView: View {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     ForEach(visibleShelves) { shelf in
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(shelf.id).font(.title2.bold())
+                            Text(LocalizedStringKey(shelf.id)).font(.title2.bold())  // translated where the label is known
                             ScrollView(.horizontal, showsIndicators: false) {
                                 LazyHStack(alignment: .top, spacing: 16) {
                                     ForEach(shelf.titles) { title in
@@ -168,7 +168,7 @@ struct SearchView: View {
             }
         }
         .overlay { overlay }
-        .searchable(text: $query, placement: .toolbar, prompt: source == .animeUnity ? "Cerca anime…" : "Film, serie TV…")
+        .searchable(text: $query, placement: .toolbar, prompt: source == .animeUnity ? Text("Cerca anime…") : Text("Film, serie TV…"))
         .toolbar {
             Picker("Sorgente", selection: $source) {
                 Text("StreamingCommunity").tag(Source.streamingCommunity)
@@ -352,8 +352,12 @@ struct TitleSheet: View {
 
     private var meta: String {
         var parts = [title.year, title.score.map { "★ \($0)" }].compactMap { $0 }
-        if title.kind == .tv { parts.append(seasons == 1 ? "1 stagione" : "\(seasons) stagioni") }
-        if title.kind == .anime { parts.append(title.episodes == 1 ? "1 episodio" : "\(title.episodes) episodi") }
+        if title.kind == .tv {
+            parts.append(seasons == 1 ? String(localized: "1 stagione") : String(localized: "\(seasons) stagioni"))
+        }
+        if title.kind == .anime {
+            parts.append(title.episodes == 1 ? String(localized: "1 episodio") : String(localized: "\(title.episodes) episodi"))
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -385,7 +389,7 @@ struct TitleSheet: View {
             }
             Spacer()
             if title.kind == .tv && seasons > 1 { Button("Tutta la serie") { batch = .series } }
-            Button(title.kind == .tv ? "Tutta la stagione" : "Scarica tutti") { batch = title.kind == .tv ? .season : .all }
+            Button(title.kind == .tv ? LocalizedStringKey("Tutta la stagione") : "Scarica tutti") { batch = title.kind == .tv ? .season : .all }
                 .disabled(episodes.isEmpty)
         }
         List(episodes) { episode in
@@ -408,9 +412,9 @@ struct TitleSheet: View {
 
     private var batchQuestion: String {
         switch batch {
-        case .season: "Aggiungere alla coda i \(episodes.count) episodi della stagione \(season)?"
-        case .series: "Aggiungere alla coda tutte le \(seasons) stagioni?"
-        case .all: "Aggiungere alla coda tutti i \(episodes.count) episodi?"
+        case .season: String(localized: "Aggiungere alla coda i \(episodes.count) episodi della stagione \(season)?")
+        case .series: String(localized: "Aggiungere alla coda tutte le \(seasons) stagioni?")
+        case .all: String(localized: "Aggiungere alla coda tutti i \(episodes.count) episodi?")
         case nil: ""
         }
     }
@@ -546,9 +550,11 @@ struct JobRow: View {
 
     private var caption: String {
         switch job.status {
-        case .queued: "In coda"
-        case .running, .encoding: [job.phase, job.detail].filter { !$0.isEmpty }.joined(separator: " · ")
-        case .done: job.output?.lastPathComponent ?? "Completato"
+        case .queued: String(localized: "In coda")
+        // The phase is kept as its Italian key, which the colours read; it is translated only here.
+        case .running, .encoding:
+            [NSLocalizedString(job.phase, comment: ""), job.detail].filter { !$0.isEmpty }.joined(separator: " · ")
+        case .done: job.output?.lastPathComponent ?? String(localized: "Completato")
         case .failed, .cancelled: job.detail
         }
     }
@@ -614,7 +620,7 @@ struct FilesView: View {
     private var freeSpace: String {
         let free = (try? libraryFolder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
             .volumeAvailableCapacityForImportantUsage
-        return free.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) + " liberi" } ?? ""
+        return free.map { String(localized: "\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) liberi") } ?? ""
     }
 
     private func size(of file: URL) -> String {
@@ -660,6 +666,12 @@ struct SettingsView: View {
     @AppStorage("notifications") private var notifications = true
     @AppStorage("transcode") private var transcode = false
     @AppStorage("maxTranscodes") private var maxTranscodes = 1
+    @Environment(Downloads.self) private var downloads
+    @State private var language = SettingsView.languageAtLaunch
+
+    /// The language this run speaks, read once, for a new choice to be compared against.
+    private static let languageAtLaunch =
+        (UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first ?? "it").hasPrefix("en") ? "en" : "it"
 
     var body: some View {
         Form {
@@ -691,9 +703,37 @@ struct SettingsView: View {
                 Text("Preset «Plex» di HandBrake: circa un terzo di spazio in meno, per un terzo della durata in CPU.")
                     .foregroundStyle(.secondary)
             }
+            Section {
+                Picker("Lingua dell'interfaccia", selection: $language) {
+                    Text(verbatim: "Italiano").tag("it")
+                    Text(verbatim: "English").tag("en")
+                }
+                if language != Self.languageAtLaunch {
+                    LabeledContent {
+                        Button("Riavvia ora", action: relaunch).disabled(downloads.activeCount > 0)
+                    } label: {
+                        downloads.activeCount > 0
+                            ? Text("Cambia al prossimo avvio. Con dei download in corso, riavvia quando finiscono.")
+                            : Text("Cambia al prossimo avvio.")
+                    }
+                }
+            } header: {
+                Text("Lingua")
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Impostazioni")
+        // The app's own AppleLanguages, which is what System Settings writes for a per-app language.
+        .onChange(of: language) { UserDefaults.standard.set([language], forKey: "AppleLanguages") }
+    }
+
+    /// A fresh copy once this one has quit. The path travels as an argument, never inside the script.
+    private func relaunch() {
+        let shell = Process()
+        shell.executableURL = URL(filePath: "/bin/sh")
+        shell.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+        try? shell.run()
+        NSApp.terminate(nil)
     }
 
     private func chooseFolder() {
