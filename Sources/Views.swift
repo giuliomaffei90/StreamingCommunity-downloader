@@ -338,16 +338,37 @@ struct Card: View {
 
 struct Poster: View {
     let url: URL?
+    @State private var image: NSImage?
 
     var body: some View {
         Color.secondary.opacity(0.15)
             .aspectRatio(2 / 3, contentMode: .fit)
             .overlay {
-                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
                     Image(systemName: "film").font(.largeTitle).foregroundStyle(.tertiary)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            // Not AsyncImage: in a lazy grid, a load cut short while the grid lays itself out again ends
+            // in its failure state for good, and the placeholder stays until the whole view is rebuilt —
+            // a search run again. The sources serve a whole start page at once without a miss; this just
+            // asks again whenever the poster comes back on screen, and keeps what it has.
+            .task(id: url) { image = await Posters.image(url) }
+    }
+}
+
+/// Posters already fetched, for the session; the system trims it when memory runs short.
+enum Posters {
+    private static let cache = NSCache<NSURL, NSImage>()
+
+    static func image(_ url: URL?) async -> NSImage? {
+        guard let url else { return nil }
+        if let kept = cache.object(forKey: url as NSURL) { return kept }
+        guard let data = try? await fetch(url), let image = NSImage(data: data) else { return nil }
+        cache.setObject(image, forKey: url as NSURL)
+        return image
     }
 }
 
