@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Build the Swift port as a release .app, put it in ~/Downloads beside the Python app rather than
-# over it, and open it.
+# Build the Swift port as a release .app, put it in ~/Downloads and open it. It carries the Python
+# app's name and so its path there too: each build script refuses to replace the other's build.
 #
 #   swift/build-app.sh
 
@@ -10,7 +10,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 EXE="StreamingCommunityDownloader"
-APP="$HOME/Downloads/StreamingCommunity Swift.app"
+APP="$HOME/Downloads/StreamingCommunity Downloader.app"
 cd "$HERE"
 
 echo "==> Build"
@@ -31,6 +31,9 @@ if [[ -e "$APP" && ! -x "$APP/Contents/MacOS/$EXE" ]]; then
   exit 1
 fi
 rm -rf "$APP"
+# The name builds had before, which shares this one's identifier and would leave two of it around.
+OLD="$HOME/Downloads/StreamingCommunity Swift.app"
+if [[ -x "$OLD/Contents/MacOS/$EXE" ]]; then rm -rf "$OLD"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/"
 cp "$REPO/icon/AppIcon.icns" "$APP/Contents/Resources/"
@@ -39,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>local.streamingcommunity.swift</string>
-  <key>CFBundleName</key><string>StreamingCommunity Swift</string>
+  <key>CFBundleName</key><string>StreamingCommunity Downloader</string>
   <key>CFBundleExecutable</key><string>$EXE</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

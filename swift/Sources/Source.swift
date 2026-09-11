@@ -75,6 +75,7 @@ struct Title: Identifiable, Hashable, Codable {
     var animeType: String?  // AnimeUnity's own classification: Movie, TV, OVA, ONA, Special
     var plot: String?       // AnimeUnity sends it with the search
     var genres: [String] = []
+    var dubbed: Bool?       // AnimeUnity keeps an Italian dub as a record of its own; optional for older ledgers
 
     /// AnimeUnity has no seasons: a film, or a title with a single episode, gets a folder of its own.
     var isAnimeMovie: Bool { kind == .anime && (animeType == "Movie" || episodes == 1) }
@@ -213,7 +214,8 @@ enum AnimeUnity {
                      score: string(r["score"]).flatMap(Double.init).map { String(format: "%.1f", $0) },
                      poster: string(r["imageurl"]).flatMap { URL(string: $0) },
                      episodes: r["episodes_count"] as? Int ?? 0, animeType: string(r["type"]),
-                     plot: string(r["plot"])?.htmlUnescaped, genres: (r["genres"] as? [JSON] ?? []).compactMap { string($0["name"]) })
+                     plot: string(r["plot"])?.htmlUnescaped, genres: (r["genres"] as? [JSON] ?? []).compactMap { string($0["name"]) },
+                     dubbed: string(r["dub"]).map { $0 == "1" })
     }
 
     static func episodes(_ title: Title) async throws -> [Episode] {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    enum Page: Hashable { case search, downloads, files, settings }
+    enum Page: Hashable { case search, downloads, files }
     @State private var page = Page.search
     @Environment(Downloads.self) private var downloads
 
@@ -14,10 +14,56 @@ struct ContentView: View {
             Tab("Download", systemImage: "arrow.down.circle", value: .downloads) { NavigationStack { DownloadsView() } }
                 .badge(downloads.activeCount)
             Tab("File", systemImage: "film.stack", value: .files) { NavigationStack { FilesView() } }
-            Tab("Impostazioni", systemImage: "gearshape", value: .settings) { NavigationStack { SettingsView() } }
         }
         .tabViewStyle(.sidebarAdaptable)
+        .tabViewSidebarBottomBar { SidebarFooter() }
         .frame(minWidth: 900, minHeight: 600)
+    }
+}
+
+/// The source domain, green while it answers and red when it does not — the first thing to look at
+/// when searches stop working, since it rotates every few weeks — and the way into the settings,
+/// which open in their own window as the Python panel's did in a modal.
+struct SidebarFooter: View {
+    @AppStorage("domain") private var domain = ""
+    @State private var answers: Bool?
+
+    private var color: Color { configuredDomain.isEmpty || answers == false ? .red : answers == true ? .green : .gray }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsLink {
+                Text(configuredDomain.isEmpty ? "Nessun dominio" : configuredDomain)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)  // the sidebar is narrow, and the whole name is the point
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .foregroundStyle(color)
+                    .background(color.opacity(0.18), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help(answers == false ? "Il dominio non risponde: cambialo nelle Impostazioni" : "")
+            SettingsLink {
+                Label("Impostazioni", systemImage: "gearshape")
+                    .labelStyle(.titleAndIcon)  // a bottom bar would otherwise reduce it to the icon
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+        .padding(12)
+        .frame(minWidth: 190, alignment: .leading)  // the tab sidebar sizes itself to its labels, too narrow for these
+        .task(id: domain) { await check() }
+    }
+
+    private func check() async {
+        answers = nil
+        guard !configuredDomain.isEmpty else { return }
+        // Typing a domain restarts this on every keystroke; the wait lets only the last one ask.
+        guard (try? await Task.sleep(for: .milliseconds(600))) != nil else { return }
+        let page = try? await StreamingCommunity.props(StreamingCommunity.url(configuredDomain, "/"))
+        if !Task.isCancelled { answers = page != nil }
     }
 }
 
@@ -97,7 +143,7 @@ struct SearchView: View {
             if showsShelves {
                 // Nothing typed yet: what the source itself puts on its front page.
                 LazyVStack(alignment: .leading, spacing: 28) {
-                    ForEach(shelves) { shelf in
+                    ForEach(visibleShelves) { shelf in
                         VStack(alignment: .leading, spacing: 10) {
                             Text(shelf.id).font(.title2.bold())
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -132,7 +178,8 @@ struct SearchView: View {
             Picker("Tipo", selection: $kind) { ForEach(kinds, id: \.0) { Text($0.1).tag($0.0) } }
             if source == .animeUnity { Toggle("Solo doppiati", isOn: $dubbed) }
         }
-        .onChange(of: source) { kind = "" }
+        // Each source is a search of its own: the other one starts from an empty field.
+        .onChange(of: source) { kind = ""; query = ""; dubbed = false }
         // Every keystroke restarts this, cancelling the previous run mid-sleep: that is the whole debounce.
         .task(id: searchKey) { await search() }
         .task(id: source.rawValue + domain) { await loadShelves() }
@@ -156,9 +203,22 @@ struct SearchView: View {
             ContentUnavailableView("Ricerca non riuscita", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if showsShelves && shelves.isEmpty {
             ProgressView()
+        } else if showsShelves && visibleShelves.isEmpty {
+            ContentUnavailableView("Niente di questo tipo in prima pagina", systemImage: "line.3.horizontal.decrease.circle",
+                                   description: Text("Cerca per nome, o allarga il filtro."))
         } else if !showsShelves, results.isEmpty, let searchedFor {
             ContentUnavailableView.search(text: searchedFor)
         }
+    }
+
+    /// The front-page lists, narrowed by the same filters the search applies.
+    private var visibleShelves: [Shelf] {
+        shelves.map { shelf in
+            Shelf(id: shelf.id, titles: shelf.titles.filter {
+                (kind.isEmpty || ($0.animeType ?? $0.kind.rawValue) == kind) && (!dubbed || $0.dubbed == true)
+            })
+        }
+        .filter { !$0.titles.isEmpty }
     }
 
     private func search() async {
@@ -451,8 +511,7 @@ struct JobRow: View {
                     job.request.title.kindBadge
                     Text(job.request.label).fontWeight(.medium).lineLimit(1)
                 }
-                ProgressView(value: job.status == .done ? 1 : job.fraction)
-                    .tint(job.status == .failed ? .red : job.status == .done ? .green : .accentColor)
+                ProgressView(value: job.status == .done ? 1 : job.fraction).tint(tint)
                 Text(caption).font(.caption).foregroundStyle(job.status == .failed ? .red : .secondary).lineLimit(2)
             }
             if job.status.isActive {
@@ -472,6 +531,17 @@ struct JobRow: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
         .padding(.vertical, 4)
+    }
+
+    /// One colour per step, as the Python panel had: downloading, audio, joining, encoding, and how it ended.
+    private var tint: Color {
+        switch job.status {
+        case .done: .green
+        case .failed: .red
+        case .queued, .cancelled: .gray
+        case .encoding: .orange
+        case .running: job.phase.hasPrefix("Audio") ? .teal : job.phase == "Unione" ? .purple : .blue
+        }
     }
 
     private var caption: String {
